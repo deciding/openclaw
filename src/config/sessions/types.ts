@@ -112,6 +112,10 @@ export type SessionEntry = {
   lastThreadId?: string | number;
   skillsSnapshot?: SessionSkillSnapshot;
   systemPromptReport?: SessionSystemPromptReport;
+  opencodeMode?: boolean;
+  opencodeProjectDir?: string;
+  opencodeAgent?: string;
+  opencodeModel?: string;
 };
 
 export function mergeSessionEntry(

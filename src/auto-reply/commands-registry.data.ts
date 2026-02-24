@@ -510,6 +510,33 @@ function buildChatCommands(): ChatCommandDefinition[] {
       category: "session",
     }),
     defineChatCommand({
+      key: "opencode",
+      nativeName: "opencode",
+      description: "Enter opencode mode to run opencode CLI commands.",
+      textAlias: "/opencode",
+      acceptsArgs: true,
+      category: "session",
+      args: [
+        {
+          name: "action",
+          description:
+            "Action: project_dir to enter mode, switch to change agent, model to change model, exit to leave mode",
+          type: "string",
+          choices: [
+            { value: "switch", label: "Switch agent" },
+            { value: "model", label: "Set model" },
+            { value: "exit", label: "Exit opencode mode" },
+          ],
+        },
+        {
+          name: "value",
+          description: "Agent name or model name depending on action, or project directory path",
+          type: "string",
+          captureRemaining: true,
+        },
+      ],
+    }),
+    defineChatCommand({
       key: "compact",
       nativeName: "compact",
       description: "Compact the session context.",

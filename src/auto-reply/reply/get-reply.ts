@@ -16,6 +16,7 @@ import { resolveCommandAuthorization } from "../command-auth.js";
 import type { MsgContext } from "../templating.js";
 import { SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
+import { runOpencodeCommand } from "./commands-opencode.js";
 import { resolveDefaultModel } from "./directive-handling.js";
 import { resolveReplyDirectives } from "./get-reply-directives.js";
 import { handleInlineActions } from "./get-reply-inline-actions.js";
@@ -164,6 +165,23 @@ export async function getReplyFromConfig(
     triggerBodyNormalized,
     bodyStripped,
   } = sessionState;
+
+  if (sessionEntry?.opencodeMode && sessionEntry?.opencodeProjectDir && triggerBodyNormalized) {
+    const isCommand = triggerBodyNormalized.startsWith("/");
+    if (!isCommand) {
+      typing.cleanup();
+      const result = await runOpencodeCommand({
+        message: triggerBodyNormalized,
+        projectDir: sessionEntry.opencodeProjectDir,
+        agent: sessionEntry.opencodeAgent || "plan/build",
+        model: sessionEntry.opencodeModel,
+      });
+      if (result.error) {
+        return { text: result.text + "\n" + result.error };
+      }
+      return { text: result.text };
+    }
+  }
 
   await applyResetModelOverride({
     cfg,
