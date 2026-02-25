@@ -63,7 +63,7 @@ function parseOpencodeCommand(body: string): {
   value: string;
 } {
   const normalized = body.trim();
-  const commandPrefix = "!oc";
+  const commandPrefix = "/oc";
 
   if (normalized === commandPrefix) {
     return { action: null, value: "" };
@@ -131,12 +131,13 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
   }
 
   const { commandBodyNormalized } = params.command;
-  if (!commandBodyNormalized.startsWith("!oc")) {
+  const trimmedCommand = commandBodyNormalized.trim();
+  if (!trimmedCommand.startsWith("/oc")) {
     return null;
   }
 
   if (!params.command.isAuthorizedSender) {
-    logVerbose(`Ignoring !oc from unauthorized sender: ${params.command.senderId || "<unknown>"}`);
+    logVerbose(`Ignoring /oc from unauthorized sender: ${params.command.senderId || "<unknown>"}`);
     return { shouldContinue: false };
   }
 
@@ -166,7 +167,7 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
       return {
         shouldContinue: false,
         reply: {
-          text: "❌ Not in opencode mode. Use `!oc [project_dir]` to enter opencode mode first.",
+          text: "❌ Not in opencode mode. Use `/oc [project_dir]` to enter opencode mode first.",
         },
       };
     }
@@ -185,7 +186,7 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
       return {
         shouldContinue: false,
         reply: {
-          text: "❌ Not in opencode mode. Use `!oc [project_dir]` to enter opencode mode first.",
+          text: "❌ Not in opencode mode. Use `/oc [project_dir]` to enter opencode mode first.",
         },
       };
     }
@@ -236,7 +237,7 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
           `Project: ${projectDir}\n` +
           `Agent: ${sessionEntry?.opencodeAgent || DEFAULT_OPENCODE_AGENT}\n` +
           `Model: ${sessionEntry?.opencodeModel || "default"}\n\n` +
-          "All messages will now be forwarded to opencode CLI. Use !oc exit to leave.",
+          "All messages will now be forwarded to opencode CLI. Use /oc exit to leave.",
       },
     };
   }
@@ -252,10 +253,10 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
       text:
         `OpenCode Mode${isActive ? " (active)" : ""}\n\n` +
         `Usage:\n` +
-        `• !oc [proj_dir] - Enter opencode mode\n` +
-        `• !oc switch [agent] - Change agent (default: plan/build)\n` +
-        `• !oc model [model] - Set model\n` +
-        `• !oc exit - Exit opencode mode\n\n` +
+        `• /oc [proj_dir] - Enter opencode mode\n` +
+        `• /oc switch [agent] - Change agent (default: plan/build)\n` +
+        `• /oc model [model] - Set model\n` +
+        `• /oc exit - Exit opencode mode\n\n` +
         `Current:\n` +
         `• Project: ${currentProject}\n` +
         `• Agent: ${currentAgent}\n` +
