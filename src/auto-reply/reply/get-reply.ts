@@ -166,6 +166,26 @@ export async function getReplyFromConfig(
     bodyStripped,
   } = sessionState;
 
+  // Check for !oc command prefix (direct detection, before normal agent processing)
+  // This works for all channels including Slack
+  const trimmedBody = triggerBodyNormalized?.trim() ?? "";
+  const isOpencodeCommand = /^!oc(\s|$)/i.test(trimmedBody);
+
+  if (isOpencodeCommand) {
+    typing.cleanup();
+    const { handleOpencodeCommandDirect } = await import("./commands-opencode.js");
+    const result = await handleOpencodeCommandDirect({
+      commandBody: triggerBodyNormalized ?? "",
+      sessionEntry,
+      sessionStore,
+      sessionKey,
+      storePath,
+    });
+    if (result) {
+      return result;
+    }
+  }
+
   if (sessionEntry?.opencodeMode && sessionEntry?.opencodeProjectDir && triggerBodyNormalized) {
     const isCommand = triggerBodyNormalized.startsWith("/");
     if (!isCommand) {
