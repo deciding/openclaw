@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "../config/types.js";
+import { logVerbose } from "../globals.js";
 import {
   type CommandNormalizeOptions,
   listChatCommands,
@@ -25,6 +26,12 @@ export function hasControlCommand(
   }
   const lowered = normalizedBody.toLowerCase();
   const commands = cfg ? listChatCommandsForConfig(cfg) : listChatCommands();
+
+  // Debug: log what we're checking
+  logVerbose(
+    `[command-detection] Checking for control command. text="${text}", trimmed="${trimmed}", normalizedBody="${normalizedBody}", lowered="${lowered}"`,
+  );
+
   for (const command of commands) {
     for (const alias of command.textAliases) {
       const normalized = alias.trim().toLowerCase();
@@ -32,11 +39,13 @@ export function hasControlCommand(
         continue;
       }
       if (lowered === normalized) {
+        logVerbose(`[command-detection] Found exact match: "${normalized}"`);
         return true;
       }
       if (command.acceptsArgs && lowered.startsWith(normalized)) {
         const nextChar = normalizedBody.charAt(normalized.length);
         if (nextChar && /\s/.test(nextChar)) {
+          logVerbose(`[command-detection] Found prefix match: "${normalized}"`);
           return true;
         }
       }

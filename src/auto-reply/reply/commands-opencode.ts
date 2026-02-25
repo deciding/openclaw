@@ -131,8 +131,15 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
   }
 
   const { commandBodyNormalized } = params.command;
+
+  // Debug logging for Slack
+  logVerbose(
+    `[opencode] handleOpencodeCommand called. commandBodyNormalized="${commandBodyNormalized}", surface="${params.command.surface}", channel="${params.command.channel}"`,
+  );
+
   const trimmedCommand = commandBodyNormalized.trim();
   if (!trimmedCommand.startsWith("/oc")) {
+    logVerbose(`[opencode] Command does not start with /oc, trimmedCommand="${trimmedCommand}"`);
     return null;
   }
 

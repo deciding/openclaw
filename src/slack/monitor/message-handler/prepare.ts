@@ -261,6 +261,11 @@ export async function prepareSlackMessage(params: {
   const textForCommandDetection = stripSlackMentionsForCommandDetection(message.text ?? "");
   const hasControlCommandInMessage = hasControlCommand(textForCommandDetection, cfg);
 
+  // Debug logging for opencode command
+  logVerbose(
+    `[slack] textForCommandDetection="${textForCommandDetection}", hasControlCommandInMessage=${hasControlCommandInMessage}`,
+  );
+
   const ownerAuthorized = resolveSlackAllowListMatch({
     allowList: allowFromLower,
     id: senderId,
