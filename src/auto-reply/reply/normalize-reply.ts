@@ -81,13 +81,17 @@ export function normalizeReplyPayload(
     ? resolveResponsePrefixTemplate(opts.responsePrefix, opts.responsePrefixContext)
     : opts.responsePrefix;
 
-  if (
-    effectivePrefix &&
-    text &&
-    text.trim() !== HEARTBEAT_TOKEN &&
-    !text.startsWith(effectivePrefix)
-  ) {
-    text = `${effectivePrefix} ${text}`;
+  // Check if payload has a custom responsePrefix in channelData (e.g., from opencode mode)
+  const customChannelPrefix =
+    typeof payload.channelData?.responsePrefix === "string"
+      ? payload.channelData.responsePrefix
+      : undefined;
+
+  // Custom channel prefix takes precedence over the pre-calculated one
+  const finalPrefix = customChannelPrefix ?? effectivePrefix;
+
+  if (finalPrefix && text && text.trim() !== HEARTBEAT_TOKEN && !text.startsWith(finalPrefix)) {
+    text = `${finalPrefix} ${text}`;
   }
 
   return { ...enrichedPayload, text };

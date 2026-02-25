@@ -513,7 +513,7 @@ function buildChatCommands(): ChatCommandDefinition[] {
       key: "opencode",
       nativeName: "opencode",
       description: "Enter opencode mode to run opencode CLI commands.",
-      textAlias: "/opencode",
+      textAlias: "!oc",
       acceptsArgs: true,
       category: "session",
       args: [

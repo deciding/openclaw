@@ -63,16 +63,17 @@ function parseOpencodeCommand(body: string): {
   value: string;
 } {
   const normalized = body.trim();
+  const commandPrefix = "!oc";
 
-  if (normalized === "/opencode") {
+  if (normalized === commandPrefix) {
     return { action: null, value: "" };
   }
 
-  if (!normalized.toLowerCase().startsWith("/opencode")) {
+  if (!normalized.toLowerCase().startsWith(commandPrefix)) {
     return { action: null, value: "" };
   }
 
-  const parts = normalized.slice(9).trim().split(/\s+/);
+  const parts = normalized.slice(commandPrefix.length).trim().split(/\s+/);
   const firstPart = (parts[0] || "").toLowerCase();
 
   if (firstPart === "exit") {
@@ -98,14 +99,20 @@ function parseOpencodeCommand(body: string): {
 }
 
 function validateProjectDir(projectDir: string): string | null {
-  let expanded = projectDir;
+  if (!projectDir || projectDir.trim() === "") {
+    return null;
+  }
 
-  if (projectDir.startsWith("~")) {
+  let expanded = projectDir.trim();
+
+  if (expanded.startsWith("~")) {
     const home = os.homedir();
-    if (projectDir === "~") {
+    if (expanded === "~") {
       expanded = home;
-    } else if (projectDir.startsWith("~/")) {
-      expanded = path.join(home, projectDir.slice(2));
+    } else if (expanded.startsWith("~/")) {
+      expanded = path.join(home, expanded.slice(2));
+    } else {
+      expanded = path.join(home, expanded.slice(1));
     }
   }
 
@@ -124,14 +131,12 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
   }
 
   const { commandBodyNormalized } = params.command;
-  if (!commandBodyNormalized.startsWith("/opencode")) {
+  if (!commandBodyNormalized.startsWith("!oc")) {
     return null;
   }
 
   if (!params.command.isAuthorizedSender) {
-    logVerbose(
-      `Ignoring /opencode from unauthorized sender: ${params.command.senderId || "<unknown>"}`,
-    );
+    logVerbose(`Ignoring !oc from unauthorized sender: ${params.command.senderId || "<unknown>"}`);
     return { shouldContinue: false };
   }
 
@@ -161,7 +166,7 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
       return {
         shouldContinue: false,
         reply: {
-          text: "❌ Not in opencode mode. Use `/opencode [project_dir]` to enter opencode mode first.",
+          text: "❌ Not in opencode mode. Use `!oc [project_dir]` to enter opencode mode first.",
         },
       };
     }
@@ -180,7 +185,7 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
       return {
         shouldContinue: false,
         reply: {
-          text: "❌ Not in opencode mode. Use `/opencode [project_dir]` to enter opencode mode first.",
+          text: "❌ Not in opencode mode. Use `!oc [project_dir]` to enter opencode mode first.",
         },
       };
     }
@@ -231,7 +236,7 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
           `Project: ${projectDir}\n` +
           `Agent: ${sessionEntry?.opencodeAgent || DEFAULT_OPENCODE_AGENT}\n` +
           `Model: ${sessionEntry?.opencodeModel || "default"}\n\n` +
-          "All messages will now be forwarded to opencode CLI. Use /opencode exit to leave.",
+          "All messages will now be forwarded to opencode CLI. Use !oc exit to leave.",
       },
     };
   }
@@ -247,10 +252,10 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
       text:
         `OpenCode Mode${isActive ? " (active)" : ""}\n\n` +
         `Usage:\n` +
-        `• /opencode [proj_dir] - Enter opencode mode\n` +
-        `• /opencode switch [agent] - Change agent (default: plan/build)\n` +
-        `• /opencode model [model] - Set model\n` +
-        `• /opencode exit - Exit opencode mode\n\n` +
+        `• !oc [proj_dir] - Enter opencode mode\n` +
+        `• !oc switch [agent] - Change agent (default: plan/build)\n` +
+        `• !oc model [model] - Set model\n` +
+        `• !oc exit - Exit opencode mode\n\n` +
         `Current:\n` +
         `• Project: ${currentProject}\n` +
         `• Agent: ${currentAgent}\n` +
@@ -260,7 +265,10 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
 };
 
 function getRepoName(projectDir: string): string {
-  const basename = path.basename(projectDir);
+  if (!projectDir) {
+    return "unknown";
+  }
+  const basename = path.basename(projectDir.replace(/\/+$/, ""));
   return basename || "unknown";
 }
 
