@@ -144,6 +144,7 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
       sessionEntry.opencodeProjectDir = undefined;
       sessionEntry.opencodeAgent = undefined;
       sessionEntry.opencodeModel = undefined;
+      sessionEntry.opencodeResponsePrefix = undefined;
       await persistSessionEntry(params);
     }
 
@@ -211,10 +212,14 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
       };
     }
 
+    const repoName = getRepoName(projectDir);
+    const responsePrefix = `[opencode:${repoName}]`;
+
     if (sessionEntry) {
       sessionEntry.opencodeMode = true;
       sessionEntry.opencodeProjectDir = projectDir;
       sessionEntry.opencodeAgent = sessionEntry.opencodeAgent || DEFAULT_OPENCODE_AGENT;
+      sessionEntry.opencodeResponsePrefix = responsePrefix;
       await persistSessionEntry(params);
     }
 
@@ -254,13 +259,20 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
   };
 };
 
+function getRepoName(projectDir: string): string {
+  const basename = path.basename(projectDir);
+  return basename || "unknown";
+}
+
 export async function runOpencodeCommand(params: {
   message: string;
   projectDir: string;
   agent: string;
   model?: string;
-}): Promise<{ text: string; error?: string }> {
+}): Promise<{ text: string; error?: string; responsePrefix?: string }> {
   const opencodePath = await findOpencodeBinary();
+  const repoName = getRepoName(params.projectDir);
+  const responsePrefix = `[opencode:${repoName}]`;
 
   const args = ["run", params.message, "-c", "--agent", params.agent];
 
@@ -275,16 +287,16 @@ export async function runOpencodeCommand(params: {
     });
 
     if (result.termination === "timeout") {
-      return { text: "", error: "⏱️ Command timed out." };
+      return { text: "", error: "⏱️ Command timed out.", responsePrefix };
     }
 
     if (result.code !== 0 && result.stderr) {
-      return { text: result.stdout, error: `⚠️ ${result.stderr}` };
+      return { text: result.stdout, error: `⚠️ ${result.stderr}`, responsePrefix };
     }
 
-    return { text: result.stdout };
+    return { text: result.stdout, responsePrefix };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    return { text: "", error: `❌ Error: ${errorMessage}` };
+    return { text: "", error: `❌ Error: ${errorMessage}`, responsePrefix };
   }
 }

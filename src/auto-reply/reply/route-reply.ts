@@ -65,15 +65,21 @@ export async function routeReply(params: RouteReplyParams): Promise<RouteReplyRe
     : undefined;
 
   // Debug: `pnpm test src/auto-reply/reply/route-reply.test.ts`
-  const responsePrefix = params.sessionKey
-    ? resolveEffectiveMessagesConfig(
-        cfg,
-        resolvedAgentId ?? resolveSessionAgentId({ config: cfg }),
-        { channel: normalizedChannel, accountId },
-      ).responsePrefix
-    : cfg.messages?.responsePrefix === "auto"
-      ? undefined
-      : cfg.messages?.responsePrefix;
+  const channelDataPrefix =
+    typeof payload.channelData?.responsePrefix === "string"
+      ? payload.channelData.responsePrefix
+      : undefined;
+  const responsePrefix =
+    channelDataPrefix ??
+    (params.sessionKey
+      ? resolveEffectiveMessagesConfig(
+          cfg,
+          resolvedAgentId ?? resolveSessionAgentId({ config: cfg }),
+          { channel: normalizedChannel, accountId },
+        ).responsePrefix
+      : cfg.messages?.responsePrefix === "auto"
+        ? undefined
+        : cfg.messages?.responsePrefix);
   const normalized = normalizeReplyPayload(payload, {
     responsePrefix,
   });

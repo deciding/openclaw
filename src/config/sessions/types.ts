@@ -116,6 +116,7 @@ export type SessionEntry = {
   opencodeProjectDir?: string;
   opencodeAgent?: string;
   opencodeModel?: string;
+  opencodeResponsePrefix?: string;
 };
 
 export function mergeSessionEntry(

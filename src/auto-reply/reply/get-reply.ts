@@ -176,10 +176,11 @@ export async function getReplyFromConfig(
         agent: sessionEntry.opencodeAgent || "plan/build",
         model: sessionEntry.opencodeModel,
       });
+      const responsePrefix = sessionEntry.opencodeResponsePrefix;
       if (result.error) {
-        return { text: result.text + "\n" + result.error };
+        return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
       }
-      return { text: result.text };
+      return { text: result.text, channelData: { responsePrefix } };
     }
   }
 
