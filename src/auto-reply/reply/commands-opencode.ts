@@ -12,7 +12,7 @@ import type { CommandHandler } from "./commands-types.js";
 
 const execFileAsync = promisify(execFile);
 
-const DEFAULT_OPENCODE_AGENT = "plan/build";
+const DEFAULT_OPENCODE_AGENT = "build";
 const OPENCODE_TIMEOUT_MS = 300_000;
 
 async function findOpencodeBinary(): Promise<string> {
@@ -175,6 +175,10 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
     }
 
     sessionEntry.opencodeAgent = parsed.value || DEFAULT_OPENCODE_AGENT;
+    const repoName = sessionEntry.opencodeProjectDir
+      ? getRepoName(sessionEntry.opencodeProjectDir)
+      : "unknown";
+    sessionEntry.opencodeResponsePrefix = `[opencode:${repoName}:${sessionEntry.opencodeAgent}]`;
     await persistSessionEntry(params);
 
     return {
