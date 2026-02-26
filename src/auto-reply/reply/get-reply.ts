@@ -12,11 +12,13 @@ import { type OpenClawConfig, loadConfig } from "../../config/config.js";
 import { applyLinkUnderstanding } from "../../link-understanding/apply.js";
 import { applyMediaUnderstanding } from "../../media-understanding/apply.js";
 import { defaultRuntime } from "../../runtime.js";
+import { editSlackMessage } from "../../slack/actions.js";
+import { sendMessageSlack } from "../../slack/send.js";
 import { resolveCommandAuthorization } from "../command-auth.js";
 import type { MsgContext } from "../templating.js";
 import { SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
-import { runOpencodeCommand } from "./commands-opencode.js";
+import { runOpencodeCommand, runOpencodeCommandStreaming } from "./commands-opencode.js";
 import { resolveDefaultModel } from "./directive-handling.js";
 import { resolveReplyDirectives } from "./get-reply-directives.js";
 import { handleInlineActions } from "./get-reply-inline-actions.js";
@@ -190,13 +192,106 @@ export async function getReplyFromConfig(
     const isCommand = triggerBodyNormalized.startsWith("/");
     if (!isCommand) {
       typing.cleanup();
+      const responsePrefix = sessionEntry.opencodeResponsePrefix;
+
+      const isSlack =
+        finalized.Provider === "slack" ||
+        finalized.Surface === "slack" ||
+        finalized.OriginatingChannel === "slack";
+
+      if (isSlack) {
+        // Try multiple sources for channel ID
+        let channelId: string | null = null;
+
+        // 1. Try from sessionEntry.origin.from (most reliable)
+        if (sessionEntry.origin?.from) {
+          const match = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
+          if (match) {
+            channelId = match[1].toUpperCase();
+          }
+        }
+
+        // 2. Try from sessionEntry.origin.to
+        if (!channelId && sessionEntry.origin?.to) {
+          const match = sessionEntry.origin.to.match(/channel:([^:]+)/i);
+          if (match) {
+            channelId = match[1].toUpperCase();
+          }
+        }
+
+        // 3. Fallback to sessionKey parsing
+        if (!channelId) {
+          const channelMatch = sessionKey?.match(/slack:channel:([^:]+)/i);
+          if (channelMatch) {
+            channelId = channelMatch[1].toUpperCase();
+          }
+        }
+
+        // Extract thread ID from sessionKey
+        const threadMatch = sessionKey?.match(/slack:channel:[^:]+:thread:([^:]+)/);
+        const threadId = threadMatch ? threadMatch[1] : null;
+
+        if (!channelId) {
+          const result = await runOpencodeCommand({
+            message: triggerBodyNormalized,
+            projectDir: sessionEntry.opencodeProjectDir,
+            agent: sessionEntry.opencodeAgent || "plan/build",
+            model: sessionEntry.opencodeModel,
+          });
+          if (result.error) {
+            return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
+          }
+          return { text: result.text, channelData: { responsePrefix } };
+        }
+
+        let fullOutput = "";
+        const target = `channel:${channelId}`;
+        const threadOpts = threadId ? { threadTs: threadId } : {};
+
+        const thinkingMsg = await sendMessageSlack(target, "🤔 Thinking...", threadOpts);
+        if (!thinkingMsg.messageId) {
+          const result = await runOpencodeCommand({
+            message: triggerBodyNormalized,
+            projectDir: sessionEntry.opencodeProjectDir,
+            agent: sessionEntry.opencodeAgent || "plan/build",
+            model: sessionEntry.opencodeModel,
+          });
+          if (result.error) {
+            return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
+          }
+          return { text: result.text, channelData: { responsePrefix } };
+        }
+
+        let lastUpdate = Date.now();
+
+        await runOpencodeCommandStreaming({
+          message: triggerBodyNormalized,
+          projectDir: sessionEntry.opencodeProjectDir,
+          agent: sessionEntry.opencodeAgent || "plan/build",
+          model: sessionEntry.opencodeModel,
+          onChunk: async (chunk) => {
+            fullOutput += chunk;
+            const now = Date.now();
+            if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
+              lastUpdate = now;
+              const displayText = fullOutput.slice(-3000);
+              await editSlackMessage(channelId, thinkingMsg.messageId, displayText);
+            }
+          },
+        });
+
+        const finalText = fullOutput.slice(-3000);
+        await editSlackMessage(channelId, thinkingMsg.messageId, finalText);
+
+        return { text: "", channelData: { responsePrefix } };
+      }
+
       const result = await runOpencodeCommand({
         message: triggerBodyNormalized,
         projectDir: sessionEntry.opencodeProjectDir,
         agent: sessionEntry.opencodeAgent || "plan/build",
         model: sessionEntry.opencodeModel,
       });
-      const responsePrefix = sessionEntry.opencodeResponsePrefix;
       if (result.error) {
         return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
       }

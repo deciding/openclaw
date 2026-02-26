@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -284,7 +285,7 @@ export async function runOpencodeCommand(params: {
   const repoName = getRepoName(params.projectDir);
   const responsePrefix = `[opencode:${repoName}]`;
 
-  const args = ["run", params.message, "-c", "--agent", params.agent];
+  const args = ["run", params.message, "-c", "--agent", params.agent, "--thinking"];
 
   if (params.model) {
     args.push("--model", params.model);
@@ -309,6 +310,63 @@ export async function runOpencodeCommand(params: {
     const errorMessage = err instanceof Error ? err.message : String(err);
     return { text: "", error: `❌ Error: ${errorMessage}`, responsePrefix };
   }
+}
+
+export async function runOpencodeCommandStreaming(params: {
+  message: string;
+  projectDir: string;
+  agent: string;
+  model?: string;
+  onChunk: (chunk: string) => void;
+}): Promise<{ error?: string }> {
+  const opencodePath = await findOpencodeBinary();
+
+  const args = ["run", params.message, "-c", "--agent", params.agent, "--thinking"];
+
+  if (params.model) {
+    args.push("--model", params.model);
+  }
+
+  return new Promise((resolve) => {
+    const child = spawn(opencodePath, args, {
+      cwd: params.projectDir,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve({ error: "⏱️ Command timed out." });
+    }, OPENCODE_TIMEOUT_MS);
+
+    child.stdout?.on("data", (data) => {
+      const chunk = data.toString();
+      stdout += chunk;
+      params.onChunk(chunk);
+    });
+
+    child.stderr?.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      params.onChunk(`\n❌ Error: ${err.message}`);
+      resolve({ error: err.message });
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (code !== 0 && stderr) {
+        params.onChunk(`\n⚠️ ${stderr}`);
+        resolve({ error: stderr });
+      } else {
+        resolve({ error: undefined });
+      }
+    });
+  });
 }
 
 export async function handleOpencodeCommandDirect(params: {
