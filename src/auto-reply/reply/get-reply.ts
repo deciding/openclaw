@@ -248,7 +248,11 @@ export async function getReplyFromConfig(
         const target = `channel:${channelId}`;
         const threadOpts = threadId ? { threadTs: threadId } : {};
 
-        const thinkingMsg = await sendMessageSlack(target, "🤔 Thinking...", threadOpts);
+        const thinkingMsg = await sendMessageSlack(
+          target,
+          `${responsePrefix} 🤔 Thinking...`,
+          threadOpts,
+        );
         if (!thinkingMsg.messageId) {
           const result = await runOpencodeCommand({
             message: triggerBodyNormalized,
@@ -275,13 +279,17 @@ export async function getReplyFromConfig(
             if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
               lastUpdate = now;
               const displayText = fullOutput.slice(-3000);
-              await editSlackMessage(channelId, thinkingMsg.messageId, displayText);
+              await editSlackMessage(
+                channelId,
+                thinkingMsg.messageId,
+                `${responsePrefix}\n${displayText}`,
+              );
             }
           },
         });
 
         const finalText = fullOutput.slice(-3000);
-        await editSlackMessage(channelId, thinkingMsg.messageId, finalText);
+        await editSlackMessage(channelId, thinkingMsg.messageId, `${responsePrefix}\n${finalText}`);
 
         return { text: "", channelData: { responsePrefix } };
       }
