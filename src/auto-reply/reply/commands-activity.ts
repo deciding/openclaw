@@ -42,6 +42,7 @@ async function getChannelMessages(
     }
 
     return response.messages
+      .toReversed()
       .filter((msg) => !msg.subtype || msg.subtype === "file_share")
       .map((msg) => ({
         user: msg.user || "unknown",
@@ -141,21 +142,25 @@ export async function buildActivitySummaryPrompt(params: {
     channelSections.push(`**#${channelName}**\n${messageLines.join("\n")}`);
   }
 
-  const prompt = `Report the progress of work in each Slack channel. For each channel, identify:
-1. What work was discussed or worked on
-2. Current status: in progress, completed, or blocked
-3. Any decisions made or next steps
+  const prompt = `Ignore all previous conversation history. Focus only on the information provided below.
 
-If no work was done in a channel, say "Nothing new".
+Extract and report the important information from each Slack channel. For each channel:
+1. What important tasks, questions, decisions, or blockers were discussed
+2. Current status: in progress, completed, or blocked
+3. Key details and context needed to understand the status
+
+If no important work was done in a channel, say "Nothing new".
 
 ${channelSections.join("\n\n")}
 
 Format your response as:
-**#channel-name**: Work progress summary
+**#channel-name**: Important information and status
 
 For example:
-**#general**: Working on API integration (in progress) - awaiting feedback from backend team. Completed: user authentication flow.
-**#random**: Nothing new.`;
+**#general**: Working on API integration (in progress) - awaiting feedback from backend team. Key: need to coordinate with team on timeline. Completed: user authentication flow.
+**#random**: Nothing new.
+
+NOTE: DO NOT use any information from previous conversations!!`;
 
   return prompt;
 }
