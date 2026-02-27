@@ -69,6 +69,11 @@
 - Format fix: `pnpm format:fix` (oxfmt --write)
 - Tests: `pnpm test` (vitest); coverage: `pnpm test:coverage`
 
+## Local Gateway Workflow
+
+- Build and restart: `pnpm openclaw gateway restart` (auto-builds and deploys)
+- If build fails with "instructions not found", run `pnpm install` first
+
 ## Coding Style & Naming Conventions
 
 - Language: TypeScript (ESM). Prefer strict typing; avoid `any`.

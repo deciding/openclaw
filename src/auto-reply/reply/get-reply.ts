@@ -188,6 +188,36 @@ export async function getReplyFromConfig(
     }
   }
 
+  // Check for status command (either direct pattern or the marker from prepare.ts)
+  const isStatusCommand =
+    /<@[^>]+>\s*status/i.test(trimmedBody) ||
+    /^@OpenClaw\s+status/i.test(trimmedBody) ||
+    trimmedBody === "[STATUS_COMMAND]";
+
+  if (
+    isStatusCommand &&
+    (finalized.OriginatingChannel === "slack" || finalized.Surface === "slack")
+  ) {
+    typing.cleanup();
+    const { buildActivitySummaryPrompt } = await import("./commands-activity.js");
+    const summaryPrompt = await buildActivitySummaryPrompt({
+      cfg,
+      storePath,
+    });
+    console.log("[DEBUG] ===== STATUS COMMAND - PROMPT SENT TO LLM =====");
+    console.log("[DEBUG]", summaryPrompt);
+    console.log("[DEBUG] ===== END OF PROMPT =====");
+    // Modify sessionCtx directly - this is what getReplyRun reads from
+    sessionCtx.BodyStripped = summaryPrompt;
+    sessionCtx.Body = summaryPrompt;
+    sessionCtx.BodyForAgent = summaryPrompt;
+    sessionCtx.BodyForCommands = summaryPrompt;
+    sessionCtx.CommandBody = summaryPrompt;
+    // Also update local variables
+    triggerBodyNormalized = summaryPrompt;
+    bodyStripped = summaryPrompt;
+  }
+
   if (sessionEntry?.opencodeMode && sessionEntry?.opencodeProjectDir && triggerBodyNormalized) {
     const isCommand = triggerBodyNormalized.startsWith("/");
     if (!isCommand) {

@@ -407,7 +407,14 @@ export async function prepareSlackMessage(params: {
       : null;
 
   const roomLabel = channelName ? `#${channelName}` : `#${message.channel}`;
-  const preview = rawBody.replace(/\s+/g, " ").slice(0, 160);
+  const rawBodyTrimmed = rawBody.replace(/\s+/g, " ").trim();
+
+  // Check for status command pattern - if detected, mark it for special handling
+  const isStatusCommand =
+    /<@[^>]+>\s*status/i.test(rawBodyTrimmed) || /^@OpenClaw\s+status/i.test(rawBodyTrimmed);
+
+  // If status command, replace preview with a marker that getReply will recognize
+  const preview = isStatusCommand ? "[STATUS_COMMAND]" : rawBodyTrimmed.slice(0, 160);
   const inboundLabel = isDirectMessage
     ? `Slack DM from ${senderName}`
     : `Slack message in ${roomLabel} from ${senderName}`;
