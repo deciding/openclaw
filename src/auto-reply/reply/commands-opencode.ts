@@ -178,7 +178,7 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
     const repoName = sessionEntry.opencodeProjectDir
       ? getRepoName(sessionEntry.opencodeProjectDir)
       : "unknown";
-    sessionEntry.opencodeResponsePrefix = `[opencode:${repoName}:${sessionEntry.opencodeAgent}]`;
+    sessionEntry.opencodeResponsePrefix = `[opencode:${repoName}|${sessionEntry.opencodeAgent}]`;
     await persistSessionEntry(params);
 
     return {
@@ -226,7 +226,7 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
 
     const repoName = getRepoName(projectDir);
     const agent = sessionEntry?.opencodeAgent || DEFAULT_OPENCODE_AGENT;
-    const responsePrefix = `[opencode:${repoName}:${agent}]`;
+    const responsePrefix = `[opencode:${repoName}|${agent}]`;
 
     if (sessionEntry) {
       sessionEntry.opencodeMode = true;
@@ -288,7 +288,7 @@ export async function runOpencodeCommand(params: {
 }): Promise<{ text: string; error?: string; responsePrefix?: string }> {
   const opencodePath = await findOpencodeBinary();
   const repoName = getRepoName(params.projectDir);
-  const responsePrefix = `[opencode:${repoName}:${params.agent}]`;
+  const responsePrefix = `[opencode:${repoName}|${params.agent}]`;
 
   const args = ["run", params.message, "-c", "--agent", params.agent, "--thinking"];
 
@@ -471,7 +471,7 @@ export async function handleOpencodeCommandDirect(params: {
     }
     const repoName = getRepoName(projectDir);
     const agent = sessionEntry?.opencodeAgent || DEFAULT_OPENCODE_AGENT;
-    const responsePrefix = `[opencode:${repoName}:${agent}]`;
+    const responsePrefix = `[opencode:${repoName}|${agent}]`;
     if (sessionEntry) {
       sessionEntry.opencodeMode = true;
       sessionEntry.opencodeProjectDir = projectDir;

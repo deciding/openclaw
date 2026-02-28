@@ -169,9 +169,9 @@ export async function getReplyFromConfig(
     bodyStripped,
   } = sessionState;
 
-  // Check channel name for auto-enter coding agent mode (e.g., #opencode:myrepo, #claude:myrepo, #codex:myrepo)
+  // Check channel name for auto-enter coding agent mode (e.g., #opencode-myrepo, #claude-myrepo, #codex-myrepo)
   const channelLabel = sessionEntry?.origin?.label ?? finalized.GroupChannel ?? finalized.GroupSubject;
-  const channelNameMatch = channelLabel?.match(/^(opencode|claude|codex):(.+)$/i);
+  const channelNameMatch = channelLabel?.match(/^(opencode|claude|codex)[-:](.+)$/i);
 
   if (channelNameMatch) {
     const [, mode, projectName] = channelNameMatch;
@@ -215,21 +215,21 @@ export async function getReplyFromConfig(
         sessionEntry.opencodeMode = true;
         sessionEntry.opencodeProjectDir = projectDir;
         sessionEntry.opencodeAgent = sessionEntry.opencodeAgent || "build";
-        sessionEntry.opencodeResponsePrefix = `[opencode:${projectName}:${sessionEntry.opencodeAgent}]`;
+        sessionEntry.opencodeResponsePrefix = `[opencode:${projectName}|${sessionEntry.opencodeAgent}]`;
         // Clear other modes
         sessionEntry.claudeCodeMode = false;
         sessionEntry.codexMode = false;
       } else if (isClaudeCode) {
         sessionEntry.claudeCodeMode = true;
         sessionEntry.claudeCodeProjectDir = projectDir;
-        sessionEntry.claudeCodeResponsePrefix = `[claude:${projectName}]`;
+        sessionEntry.claudeCodeResponsePrefix = `[claude:${projectName}|agent]`;
         // Clear other modes
         sessionEntry.opencodeMode = false;
         sessionEntry.codexMode = false;
       } else if (isCodex) {
         sessionEntry.codexMode = true;
         sessionEntry.codexProjectDir = projectDir;
-        sessionEntry.codexResponsePrefix = `[codex:${projectName}]`;
+        sessionEntry.codexResponsePrefix = `[codex:${projectName}|agent]`;
         // Clear other modes
         sessionEntry.opencodeMode = false;
         sessionEntry.claudeCodeMode = false;
