@@ -117,6 +117,16 @@ export type SessionEntry = {
   opencodeAgent?: string;
   opencodeModel?: string;
   opencodeResponsePrefix?: string;
+  claudeCodeMode?: boolean;
+  claudeCodeProjectDir?: string;
+  claudeCodeAgent?: string;
+  claudeCodeModel?: string;
+  claudeCodeResponsePrefix?: string;
+  codexMode?: boolean;
+  codexProjectDir?: string;
+  codexAgent?: string;
+  codexModel?: string;
+  codexResponsePrefix?: string;
 };
 
 export function mergeSessionEntry(

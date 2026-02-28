@@ -9,6 +9,7 @@ import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
 import { DEFAULT_AGENT_WORKSPACE_DIR, ensureAgentWorkspace } from "../../agents/workspace.js";
 import { resolveChannelModelOverride } from "../../channels/model-overrides.js";
 import { type OpenClawConfig, loadConfig } from "../../config/config.js";
+import { updateSessionStore } from "../../config/sessions.js";
 import { applyLinkUnderstanding } from "../../link-understanding/apply.js";
 import { applyMediaUnderstanding } from "../../media-understanding/apply.js";
 import { defaultRuntime } from "../../runtime.js";
@@ -18,7 +19,7 @@ import { resolveCommandAuthorization } from "../command-auth.js";
 import type { MsgContext } from "../templating.js";
 import { SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
-import { runOpencodeCommand, runOpencodeCommandStreaming } from "./commands-opencode.js";
+import { runOpencodeCommand, runOpencodeCommandStreaming, validateProjectDir } from "./commands-opencode.js";
 import { resolveDefaultModel } from "./directive-handling.js";
 import { resolveReplyDirectives } from "./get-reply-directives.js";
 import { handleInlineActions } from "./get-reply-inline-actions.js";
@@ -167,6 +168,87 @@ export async function getReplyFromConfig(
     triggerBodyNormalized,
     bodyStripped,
   } = sessionState;
+
+  // Check channel name for auto-enter coding agent mode (e.g., #opencode:myrepo, #claude:myrepo, #codex:myrepo)
+  const channelLabel = sessionEntry?.origin?.label ?? finalized.GroupChannel ?? finalized.GroupSubject;
+  const channelNameMatch = channelLabel?.match(/^(opencode|claude|codex):(.+)$/i);
+
+  if (channelNameMatch) {
+    const [, mode, projectName] = channelNameMatch;
+    const modeLower = mode.toLowerCase();
+    const isOpencode = modeLower === "opencode";
+    const isClaudeCode = modeLower === "claude";
+    const isCodex = modeLower === "codex";
+
+    // Check if we need to enter or switch mode
+    const currentMode =
+      sessionEntry?.opencodeMode ||
+      (sessionEntry?.claudeCodeMode && "claude") ||
+      (sessionEntry?.codexMode && "codex");
+
+    const needsSwitch =
+      (isOpencode && !sessionEntry?.opencodeMode) ||
+      (isClaudeCode && !sessionEntry?.claudeCodeMode) ||
+      (isCodex && !sessionEntry?.codexMode);
+
+    // Resolve project directory
+    let projectDir = "";
+    if (isOpencode) {
+      projectDir = sessionEntry?.opencodeProjectDir ?? "";
+    } else if (isClaudeCode) {
+      projectDir = sessionEntry?.claudeCodeProjectDir ?? "";
+    } else if (isCodex) {
+      projectDir = sessionEntry?.codexProjectDir ?? "";
+    }
+
+    // Validate and resolve project directory
+    if (!projectDir && projectName) {
+      const { validateProjectDir } = await import("./commands-opencode.js");
+      projectDir = validateProjectDir(projectName) ?? "";
+    }
+
+    // Enter/switch mode if needed
+    if (projectDir && (needsSwitch || !currentMode)) {
+      typing.cleanup();
+
+      if (isOpencode) {
+        sessionEntry.opencodeMode = true;
+        sessionEntry.opencodeProjectDir = projectDir;
+        sessionEntry.opencodeAgent = sessionEntry.opencodeAgent || "build";
+        sessionEntry.opencodeResponsePrefix = `[opencode:${projectName}:${sessionEntry.opencodeAgent}]`;
+        // Clear other modes
+        sessionEntry.claudeCodeMode = false;
+        sessionEntry.codexMode = false;
+      } else if (isClaudeCode) {
+        sessionEntry.claudeCodeMode = true;
+        sessionEntry.claudeCodeProjectDir = projectDir;
+        sessionEntry.claudeCodeResponsePrefix = `[claude:${projectName}]`;
+        // Clear other modes
+        sessionEntry.opencodeMode = false;
+        sessionEntry.codexMode = false;
+      } else if (isCodex) {
+        sessionEntry.codexMode = true;
+        sessionEntry.codexProjectDir = projectDir;
+        sessionEntry.codexResponsePrefix = `[codex:${projectName}]`;
+        // Clear other modes
+        sessionEntry.opencodeMode = false;
+        sessionEntry.claudeCodeMode = false;
+      }
+
+      if (sessionKey && sessionStore && storePath) {
+        sessionEntry.updatedAt = Date.now();
+        sessionStore[sessionKey] = sessionEntry;
+        await updateSessionStore(storePath, (store) => {
+          store[sessionKey] = sessionEntry;
+        });
+      }
+
+      const modeLabel = isOpencode ? "opencode" : isClaudeCode ? "Claude Code" : "Codex";
+      return {
+        text: `🔓 Entered ${modeLabel} mode!\n\nProject: ${projectDir}\n\nAll messages will now be forwarded to ${modeLabel} CLI.`,
+      };
+    }
+  }
 
   // Check for !oc command prefix (direct detection, before normal agent processing)
   // This works for all channels including Slack
@@ -329,6 +411,232 @@ export async function getReplyFromConfig(
         projectDir: sessionEntry.opencodeProjectDir,
         agent: sessionEntry.opencodeAgent || "plan/build",
         model: sessionEntry.opencodeModel,
+      });
+      if (result.error) {
+        return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
+      }
+      return { text: result.text, channelData: { responsePrefix } };
+    }
+  }
+
+  // Claude Code mode handling
+  if (sessionEntry?.claudeCodeMode && sessionEntry?.claudeCodeProjectDir && triggerBodyNormalized) {
+    const isCommand = triggerBodyNormalized.startsWith("/");
+    if (!isCommand) {
+      typing.cleanup();
+      const responsePrefix = sessionEntry.claudeCodeResponsePrefix;
+
+      const isSlack =
+        finalized.Provider === "slack" ||
+        finalized.Surface === "slack" ||
+        finalized.OriginatingChannel === "slack";
+
+      const { runClaudeCodeCommand, runClaudeCodeCommandStreaming } = await import("./commands-opencode.js");
+
+      if (isSlack) {
+        let channelId: string | null = null;
+
+        if (sessionEntry.origin?.from) {
+          const match = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
+          if (match) {
+            channelId = match[1].toUpperCase();
+          }
+        }
+
+        if (!channelId && sessionEntry.origin?.to) {
+          const match = sessionEntry.origin.to.match(/channel:([^:]+)/i);
+          if (match) {
+            channelId = match[1].toUpperCase();
+          }
+        }
+
+        if (!channelId) {
+          const channelMatch = sessionKey?.match(/slack:channel:([^:]+)/i);
+          if (channelMatch) {
+            channelId = channelMatch[1].toUpperCase();
+          }
+        }
+
+        const threadMatch = sessionKey?.match(/slack:channel:[^:]+:thread:([^:]+)/);
+        const threadId = threadMatch ? threadMatch[1] : null;
+
+        if (!channelId) {
+          const result = await runClaudeCodeCommand({
+            message: triggerBodyNormalized,
+            projectDir: sessionEntry.claudeCodeProjectDir,
+            model: sessionEntry.claudeCodeModel,
+          });
+          if (result.error) {
+            return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
+          }
+          return { text: result.text, channelData: { responsePrefix } };
+        }
+
+        let fullOutput = "";
+        const target = `channel:${channelId}`;
+        const threadOpts = threadId ? { threadTs: threadId } : {};
+
+        const thinkingMsg = await sendMessageSlack(
+          target,
+          `${responsePrefix} 🤔 Thinking...`,
+          threadOpts,
+        );
+        if (!thinkingMsg.messageId) {
+          const result = await runClaudeCodeCommand({
+            message: triggerBodyNormalized,
+            projectDir: sessionEntry.claudeCodeProjectDir,
+            model: sessionEntry.claudeCodeModel,
+          });
+          if (result.error) {
+            return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
+          }
+          return { text: result.text, channelData: { responsePrefix } };
+        }
+
+        let lastUpdate = Date.now();
+
+        await runClaudeCodeCommandStreaming({
+          message: triggerBodyNormalized,
+          projectDir: sessionEntry.claudeCodeProjectDir,
+          model: sessionEntry.claudeCodeModel,
+          onChunk: async (chunk) => {
+            fullOutput += chunk;
+            const now = Date.now();
+            if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
+              lastUpdate = now;
+              const displayText = fullOutput.slice(-3000);
+              await editSlackMessage(
+                channelId,
+                thinkingMsg.messageId,
+                `${responsePrefix}\n${displayText}`,
+              );
+            }
+          },
+        });
+
+        const finalText = fullOutput.slice(-3000);
+        await editSlackMessage(channelId, thinkingMsg.messageId, `${responsePrefix}\n${finalText}`);
+
+        return { text: "", channelData: { responsePrefix } };
+      }
+
+      const result = await runClaudeCodeCommand({
+        message: triggerBodyNormalized,
+        projectDir: sessionEntry.claudeCodeProjectDir,
+        model: sessionEntry.claudeCodeModel,
+      });
+      if (result.error) {
+        return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
+      }
+      return { text: result.text, channelData: { responsePrefix } };
+    }
+  }
+
+  // Codex mode handling
+  if (sessionEntry?.codexMode && sessionEntry?.codexProjectDir && triggerBodyNormalized) {
+    const isCommand = triggerBodyNormalized.startsWith("/");
+    if (!isCommand) {
+      typing.cleanup();
+      const responsePrefix = sessionEntry.codexResponsePrefix;
+
+      const isSlack =
+        finalized.Provider === "slack" ||
+        finalized.Surface === "slack" ||
+        finalized.OriginatingChannel === "slack";
+
+      const { runCodexCommand, runCodexCommandStreaming } = await import("./commands-opencode.js");
+
+      if (isSlack) {
+        let channelId: string | null = null;
+
+        if (sessionEntry.origin?.from) {
+          const match = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
+          if (match) {
+            channelId = match[1].toUpperCase();
+          }
+        }
+
+        if (!channelId && sessionEntry.origin?.to) {
+          const match = sessionEntry.origin.to.match(/channel:([^:]+)/i);
+          if (match) {
+            channelId = match[1].toUpperCase();
+          }
+        }
+
+        if (!channelId) {
+          const channelMatch = sessionKey?.match(/slack:channel:([^:]+)/i);
+          if (channelMatch) {
+            channelId = channelMatch[1].toUpperCase();
+          }
+        }
+
+        const threadMatch = sessionKey?.match(/slack:channel:[^:]+:thread:([^:]+)/);
+        const threadId = threadMatch ? threadMatch[1] : null;
+
+        if (!channelId) {
+          const result = await runCodexCommand({
+            message: triggerBodyNormalized,
+            projectDir: sessionEntry.codexProjectDir,
+            model: sessionEntry.codexModel,
+          });
+          if (result.error) {
+            return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
+          }
+          return { text: result.text, channelData: { responsePrefix } };
+        }
+
+        let fullOutput = "";
+        const target = `channel:${channelId}`;
+        const threadOpts = threadId ? { threadTs: threadId } : {};
+
+        const thinkingMsg = await sendMessageSlack(
+          target,
+          `${responsePrefix} 🤔 Thinking...`,
+          threadOpts,
+        );
+        if (!thinkingMsg.messageId) {
+          const result = await runCodexCommand({
+            message: triggerBodyNormalized,
+            projectDir: sessionEntry.codexProjectDir,
+            model: sessionEntry.codexModel,
+          });
+          if (result.error) {
+            return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
+          }
+          return { text: result.text, channelData: { responsePrefix } };
+        }
+
+        let lastUpdate = Date.now();
+
+        await runCodexCommandStreaming({
+          message: triggerBodyNormalized,
+          projectDir: sessionEntry.codexProjectDir,
+          model: sessionEntry.codexModel,
+          onChunk: async (chunk) => {
+            fullOutput += chunk;
+            const now = Date.now();
+            if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
+              lastUpdate = now;
+              const displayText = fullOutput.slice(-3000);
+              await editSlackMessage(
+                channelId,
+                thinkingMsg.messageId,
+                `${responsePrefix}\n${displayText}`,
+              );
+            }
+          },
+        });
+
+        const finalText = fullOutput.slice(-3000);
+        await editSlackMessage(channelId, thinkingMsg.messageId, `${responsePrefix}\n${finalText}`);
+
+        return { text: "", channelData: { responsePrefix } };
+      }
+
+      const result = await runCodexCommand({
+        message: triggerBodyNormalized,
+        projectDir: sessionEntry.codexProjectDir,
+        model: sessionEntry.codexModel,
       });
       if (result.error) {
         return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };

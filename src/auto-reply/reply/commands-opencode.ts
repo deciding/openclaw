@@ -100,7 +100,7 @@ function parseOpencodeCommand(body: string): {
   return { action: null, value: "" };
 }
 
-function validateProjectDir(projectDir: string): string | null {
+export function validateProjectDir(projectDir: string): string | null {
   if (!projectDir || projectDir.trim() === "") {
     return null;
   }
@@ -496,4 +496,253 @@ export async function handleOpencodeCommandDirect(params: {
   }
 
   return null;
+}
+
+const CLAUDE_CODE_TIMEOUT_MS = 300_000;
+const CODEX_TIMEOUT_MS = 300_000;
+
+async function findClaudeCodeBinary(): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("which", ["claude"]);
+    const binaryPath = stdout.trim();
+    if (binaryPath) {
+      return binaryPath;
+    }
+  } catch {
+    // which failed, continue to fallback
+  }
+
+  const commonPaths = [
+    "/opt/homebrew/bin/claude",
+    "/usr/local/bin/claude",
+    path.join(os.homedir(), ".local/bin/claude"),
+    path.join(os.homedir(), "Library/pnpm/claude"),
+  ];
+
+  for (const p of commonPaths) {
+    try {
+      const { access } = await import("node:fs/promises");
+      await access(p);
+      return p;
+    } catch {
+      continue;
+    }
+  }
+
+  return "claude";
+}
+
+async function findCodexBinary(): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("which", ["codex"]);
+    const binaryPath = stdout.trim();
+    if (binaryPath) {
+      return binaryPath;
+    }
+  } catch {
+    // which failed, continue to fallback
+  }
+
+  const commonPaths = [
+    "/opt/homebrew/bin/codex",
+    "/usr/local/bin/codex",
+    path.join(os.homedir(), ".local/bin/codex"),
+    path.join(os.homedir(), "Library/pnpm/codex"),
+  ];
+
+  for (const p of commonPaths) {
+    try {
+      const { access } = await import("node:fs/promises");
+      await access(p);
+      return p;
+    } catch {
+      continue;
+    }
+  }
+
+  return "codex";
+}
+
+export async function runClaudeCodeCommand(params: {
+  message: string;
+  projectDir: string;
+  model?: string;
+}): Promise<{ text: string; error?: string; responsePrefix?: string }> {
+  const claudePath = await findClaudeCodeBinary();
+  const repoName = getRepoName(params.projectDir);
+  const responsePrefix = `[claude:${repoName}]`;
+
+  const args = ["--print", params.message];
+
+  if (params.model) {
+    args.unshift("--model", params.model);
+  }
+
+  try {
+    const result = await runCommandWithTimeout([claudePath, ...args], {
+      timeoutMs: CLAUDE_CODE_TIMEOUT_MS,
+      cwd: params.projectDir,
+    });
+
+    if (result.termination === "timeout") {
+      return { text: "", error: "⏱️ Command timed out.", responsePrefix };
+    }
+
+    if (result.code !== 0 && result.stderr) {
+      return { text: result.stdout, error: `⚠️ ${result.stderr}`, responsePrefix };
+    }
+
+    return { text: result.stdout, responsePrefix };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    return { text: "", error: `❌ Error: ${errorMessage}`, responsePrefix };
+  }
+}
+
+export async function runClaudeCodeCommandStreaming(params: {
+  message: string;
+  projectDir: string;
+  model?: string;
+  onChunk: (chunk: string) => void;
+}): Promise<{ error?: string }> {
+  const claudePath = await findClaudeCodeBinary();
+
+  const args = ["--print", params.message];
+
+  if (params.model) {
+    args.unshift("--model", params.model);
+  }
+
+  return new Promise((resolve) => {
+    const child = spawn(claudePath, args, {
+      cwd: params.projectDir,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve({ error: "⏱️ Command timed out." });
+    }, CLAUDE_CODE_TIMEOUT_MS);
+
+    child.stdout?.on("data", (data) => {
+      const chunk = data.toString();
+      stdout += chunk;
+      params.onChunk(chunk);
+    });
+
+    child.stderr?.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      params.onChunk(`\n❌ Error: ${err.message}`);
+      resolve({ error: err.message });
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (code !== 0 && stderr) {
+        params.onChunk(`\n⚠️ ${stderr}`);
+        resolve({ error: stderr });
+      } else {
+        resolve({ error: undefined });
+      }
+    });
+  });
+}
+
+export async function runCodexCommand(params: {
+  message: string;
+  projectDir: string;
+  model?: string;
+}): Promise<{ text: string; error?: string; responsePrefix?: string }> {
+  const codexPath = await findCodexBinary();
+  const repoName = getRepoName(params.projectDir);
+  const responsePrefix = `[codex:${repoName}]`;
+
+  const args = ["exec", params.message];
+
+  if (params.model) {
+    args.push("--model", params.model);
+  }
+
+  try {
+    const result = await runCommandWithTimeout([codexPath, ...args], {
+      timeoutMs: CODEX_TIMEOUT_MS,
+      cwd: params.projectDir,
+    });
+
+    if (result.termination === "timeout") {
+      return { text: "", error: "⏱️ Command timed out.", responsePrefix };
+    }
+
+    if (result.code !== 0 && result.stderr) {
+      return { text: result.stdout, error: `⚠️ ${result.stderr}`, responsePrefix };
+    }
+
+    return { text: result.stdout, responsePrefix };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    return { text: "", error: `❌ Error: ${errorMessage}`, responsePrefix };
+  }
+}
+
+export async function runCodexCommandStreaming(params: {
+  message: string;
+  projectDir: string;
+  model?: string;
+  onChunk: (chunk: string) => void;
+}): Promise<{ error?: string }> {
+  const codexPath = await findCodexBinary();
+
+  const args = ["exec", params.message];
+
+  if (params.model) {
+    args.push("--model", params.model);
+  }
+
+  return new Promise((resolve) => {
+    const child = spawn(codexPath, args, {
+      cwd: params.projectDir,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve({ error: "⏱️ Command timed out." });
+    }, CODEX_TIMEOUT_MS);
+
+    child.stdout?.on("data", (data) => {
+      const chunk = data.toString();
+      stdout += chunk;
+      params.onChunk(chunk);
+    });
+
+    child.stderr?.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      params.onChunk(`\n❌ Error: ${err.message}`);
+      resolve({ error: err.message });
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (code !== 0 && stderr) {
+        params.onChunk(`\n⚠️ ${stderr}`);
+        resolve({ error: stderr });
+      } else {
+        resolve({ error: undefined });
+      }
+    });
+  });
 }
