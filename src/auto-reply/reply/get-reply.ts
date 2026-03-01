@@ -171,9 +171,10 @@ export async function getReplyFromConfig(
   } = sessionState;
 
   // Check channel name for auto-enter coding agent mode (e.g., #opencode-myrepo, #claude-myrepo, #codex-myrepo)
-  // Check sessionEntry.origin.label FIRST (fresh from channel_rename event), then fall back to finalized (may be stale)
-  const channelLabel = sessionEntry?.origin?.label ?? finalized.GroupChannel ?? finalized.GroupSubject;
+  // Use GroupSubject FIRST (fresh from Slack API), then fall back to session origin
+  const channelLabel = finalized.GroupSubject ?? finalized.GroupChannel ?? sessionEntry?.origin?.label;
   console.log("[DEBUG] Channel label:", channelLabel);
+  console.log("[DEBUG] Source: GroupSubject:", finalized.GroupSubject, "| GroupChannel:", finalized.GroupChannel, "| origin.label:", sessionEntry?.origin?.label);
   const channelNameMatch = channelLabel?.match(/^#?(opencode|claude|codex)[-:](.+)$/i);
   console.log("[DEBUG] Channel name match:", channelNameMatch);
 
@@ -227,6 +228,7 @@ export async function getReplyFromConfig(
 // Check if mode is changing (e.g., codex → opencode)
 // Use OLD mode's project directory to detect the change
     const previousMode = sessionEntry?.codexMode ? "codex" : sessionEntry?.claudeCodeMode ? "claude" : sessionEntry?.opencodeMode ? "opencode" : null;
+    console.log("[DEBUG] Session flags - opencodeMode:", sessionEntry?.opencodeMode, "| claudeCodeMode:", sessionEntry?.claudeCodeMode, "| codexMode:", sessionEntry?.codexMode);
     const previousProjectDir = previousMode === "codex"
       ? sessionEntry?.codexProjectDir
       : previousMode === "claude"
