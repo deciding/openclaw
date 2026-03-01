@@ -674,7 +674,8 @@ Now generate the summary for continuing with ${modeLower}:`;
   }
 
   // Check for !rate command - show autonomous level based on user feedback
-  const isRateCommand = /^!rate\s/i.test(trimmedBody);
+  const isRateCommand = /(^|[\s/])!rate(\s|$)/i.test(trimmedBody);
+  console.log("[DEBUG] !rate check - trimmedBody:", trimmedBody, "isRateCommand:", isRateCommand);
   if (isRateCommand) {
     typing.cleanup();
     const { calculateAutoLevel } = await import("./commands-opencode.js");
