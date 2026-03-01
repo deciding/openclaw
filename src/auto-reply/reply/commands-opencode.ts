@@ -15,6 +15,97 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_OPENCODE_AGENT = "build";
 const OPENCODE_TIMEOUT_MS = 300_000;
 
+export type AutoLevel = "l0" | "l1" | "l2" | "l3" | "l4";
+
+export interface AutoLevelResult {
+  level: AutoLevel;
+  ratio: number;
+  percentage: number;
+  totalRequests: number;
+  totalAccepted: number;
+}
+
+export function calculateAutoLevel(params: {
+  projectDir: string;
+  mode: string;
+}): AutoLevelResult {
+  const { projectDir, mode } = params;
+  const { existsSync: existsSyncSync, readFileSync } = require("node:fs");
+  const { mkdir, writeFile } = require("node:fs/promises");
+
+  const handclawDir = path.join(projectDir, ".handclaw");
+  const fileName = `USER_FEEDBACK_${mode.toUpperCase()}.md`;
+  const filePath = path.join(handclawDir, fileName);
+
+  let totalRequests = 1;
+  let totalAccepted = 0;
+
+  if (existsSyncSync(filePath)) {
+    try {
+      const content = readFileSync(filePath, "utf-8");
+      const codingMatch = content.match(/coding_requests:\s*(\d+)/i);
+      const acceptedMatch = content.match(/codes_accepted:\s*(\d+)/i);
+      totalRequests = codingMatch ? parseInt(codingMatch[1], 10) : 1;
+      totalAccepted = acceptedMatch ? parseInt(acceptedMatch[1], 10) : 0;
+    } catch {
+      // Use defaults
+    }
+  } else {
+    try {
+      mkdir(handclawDir, { recursive: true });
+      const initContent = `# Code Feedback - ${mode}
+
+coding_requests: ${totalRequests}
+codes_accepted: ${totalAccepted}
+last_updated: ${new Date().toISOString()}
+`;
+      writeFile(filePath, initContent);
+    } catch {
+      // Use defaults
+    }
+  }
+
+  const ratio = totalRequests > 0 ? totalAccepted / totalRequests : 0;
+  const percentage = Math.round(ratio * 100);
+
+  let ratioLevel: AutoLevel;
+  if (ratio <= 0.1) {
+    ratioLevel = "l0";
+  } else if (ratio <= 0.2) {
+    ratioLevel = "l1";
+  } else if (ratio <= 0.4) {
+    ratioLevel = "l2";
+  } else if (ratio <= 0.8) {
+    ratioLevel = "l3";
+  } else {
+    ratioLevel = "l4";
+  }
+
+  let requestCap: AutoLevel;
+  if (totalRequests < 20) {
+    requestCap = "l0";
+  } else if (totalRequests < 50) {
+    requestCap = "l1";
+  } else if (totalRequests < 100) {
+    requestCap = "l2";
+  } else {
+    requestCap = "l4";
+  }
+
+  const levelOrder: AutoLevel[] = ["l0", "l1", "l2", "l3", "l4"];
+  const ratioIndex = levelOrder.indexOf(ratioLevel);
+  const capIndex = levelOrder.indexOf(requestCap);
+  const finalLevel = levelOrder[Math.min(ratioIndex, capIndex)];
+
+  return {
+    level: finalLevel,
+    ratio,
+    percentage,
+    totalRequests,
+    totalAccepted,
+  };
+}
+
 async function findOpencodeBinary(): Promise<string> {
   try {
     const { stdout } = await execFileAsync("which", ["opencode"]);

@@ -673,6 +673,58 @@ Now generate the summary for continuing with ${modeLower}:`;
     }
   }
 
+  // Check for !rate command - show autonomous level based on user feedback
+  const isRateCommand = /^!rate\s/i.test(trimmedBody);
+  if (isRateCommand) {
+    typing.cleanup();
+    const { calculateAutoLevel } = await import("./commands-opencode.js");
+
+    let projectDir = "";
+    let mode = "";
+
+    if (sessionEntry?.opencodeMode && sessionEntry?.opencodeProjectDir) {
+      projectDir = sessionEntry.opencodeProjectDir;
+      mode = "opencode";
+    } else if (sessionEntry?.claudeCodeMode && sessionEntry?.claudeCodeProjectDir) {
+      projectDir = sessionEntry.claudeCodeProjectDir;
+      mode = "claude";
+    } else if (sessionEntry?.codexMode && sessionEntry?.codexProjectDir) {
+      projectDir = sessionEntry.codexProjectDir;
+      mode = "codex";
+    }
+
+    if (projectDir && mode) {
+      const result = calculateAutoLevel({ projectDir, mode });
+      const responseText = `📊 Code Acceptance Rate: ${result.percentage}% (${result.totalAccepted}/${result.totalRequests} requests accepted)
+🚀 Autonomous Level: ${result.level}`;
+
+      if (
+        finalized.Provider === "slack" ||
+        finalized.Surface === "slack" ||
+        finalized.OriginatingChannel === "slack"
+      ) {
+        const target = finalized.GroupChannel ?? finalized.GroupSubject ?? sessionEntry?.origin?.label ?? "channel";
+        await sendMessageSlack(target, responseText);
+        return { text: "" };
+      } else {
+        return { text: responseText };
+      }
+    } else {
+      const responseText = "⚠️ Not in a coding CLI channel. Use this command in #opencode-, #claude-, or #codex- channels.";
+      if (
+        finalized.Provider === "slack" ||
+        finalized.Surface === "slack" ||
+        finalized.OriginatingChannel === "slack"
+      ) {
+        const target = finalized.GroupChannel ?? finalized.GroupSubject ?? sessionEntry?.origin?.label ?? "channel";
+        await sendMessageSlack(target, responseText);
+        return { text: "" };
+      } else {
+        return { text: responseText };
+      }
+    }
+  }
+
   // Check for status command (either direct pattern or the marker from prepare.ts)
   const isStatusCommand =
     /<@[^>]+>\s*status/i.test(trimmedBody) ||
