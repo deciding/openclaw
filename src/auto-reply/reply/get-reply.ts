@@ -10,6 +10,7 @@ import { DEFAULT_AGENT_WORKSPACE_DIR, ensureAgentWorkspace } from "../../agents/
 import { resolveChannelModelOverride } from "../../channels/model-overrides.js";
 import { type OpenClawConfig, loadConfig } from "../../config/config.js";
 import { updateSessionStore } from "../../config/sessions.js";
+import path from "node:path";
 import { applyLinkUnderstanding } from "../../link-understanding/apply.js";
 import { applyMediaUnderstanding } from "../../media-understanding/apply.js";
 import { defaultRuntime } from "../../runtime.js";
@@ -171,7 +172,9 @@ export async function getReplyFromConfig(
 
   // Check channel name for auto-enter coding agent mode (e.g., #opencode-myrepo, #claude-myrepo, #codex-myrepo)
   const channelLabel = sessionEntry?.origin?.label ?? finalized.GroupChannel ?? finalized.GroupSubject;
-  const channelNameMatch = channelLabel?.match(/^(opencode|claude|codex)[-:](.+)$/i);
+  console.log("[DEBUG] Channel label:", channelLabel);
+  const channelNameMatch = channelLabel?.match(/^#?(opencode|claude|codex)[-:](.+)$/i);
+  console.log("[DEBUG] Channel name match:", channelNameMatch);
 
   if (channelNameMatch) {
     const [, mode, projectName] = channelNameMatch;
@@ -179,17 +182,20 @@ export async function getReplyFromConfig(
     const isOpencode = modeLower === "opencode";
     const isClaudeCode = modeLower === "claude";
     const isCodex = modeLower === "codex";
+    console.log("[DEBUG] Mode detected:", modeLower, "project:", projectName);
 
     // Check if we need to enter or switch mode
     const currentMode =
       sessionEntry?.opencodeMode ||
       (sessionEntry?.claudeCodeMode && "claude") ||
       (sessionEntry?.codexMode && "codex");
+    console.log("[DEBUG] Current mode:", currentMode);
 
     const needsSwitch =
       (isOpencode && !sessionEntry?.opencodeMode) ||
       (isClaudeCode && !sessionEntry?.claudeCodeMode) ||
       (isCodex && !sessionEntry?.codexMode);
+    console.log("[DEBUG] Needs switch:", needsSwitch);
 
     // Resolve project directory
     let projectDir = "";
@@ -203,9 +209,19 @@ export async function getReplyFromConfig(
 
     // Validate and resolve project directory
     if (!projectDir && projectName) {
-      const { validateProjectDir } = await import("./commands-opencode.js");
-      projectDir = validateProjectDir(projectName) ?? "";
+      // Try workspace first
+      const workspaceProjectDir = path.join(workspaceDir, projectName);
+      const { access } = await import("node:fs/promises");
+      try {
+        await access(workspaceProjectDir);
+        projectDir = workspaceProjectDir;
+      } catch {
+        // Fall back to regular validation
+        const { validateProjectDir } = await import("./commands-opencode.js");
+        projectDir = validateProjectDir(projectName) ?? "";
+      }
     }
+    console.log("[DEBUG] Project dir:", projectDir);
 
     // Enter/switch mode if needed
     if (projectDir && (needsSwitch || !currentMode)) {
@@ -222,14 +238,16 @@ export async function getReplyFromConfig(
       } else if (isClaudeCode) {
         sessionEntry.claudeCodeMode = true;
         sessionEntry.claudeCodeProjectDir = projectDir;
-        sessionEntry.claudeCodeResponsePrefix = `[claude:${projectName}|agent]`;
+        sessionEntry.claudeCodeAgent = sessionEntry.claudeCodeAgent || "build";
+        sessionEntry.claudeCodeResponsePrefix = `[claude:${projectName}|${sessionEntry.claudeCodeAgent}]`;
         // Clear other modes
         sessionEntry.opencodeMode = false;
         sessionEntry.codexMode = false;
       } else if (isCodex) {
         sessionEntry.codexMode = true;
         sessionEntry.codexProjectDir = projectDir;
-        sessionEntry.codexResponsePrefix = `[codex:${projectName}|agent]`;
+        sessionEntry.codexAgent = sessionEntry.codexAgent || "build";
+        sessionEntry.codexResponsePrefix = `[codex:${projectName}|${sessionEntry.codexAgent}]`;
         // Clear other modes
         sessionEntry.opencodeMode = false;
         sessionEntry.claudeCodeMode = false;
