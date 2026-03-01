@@ -704,7 +704,16 @@ Now generate the summary for continuing with ${modeLower}:`;
         finalized.Surface === "slack" ||
         finalized.OriginatingChannel === "slack"
       ) {
-        const target = finalized.GroupChannel ?? finalized.GroupSubject ?? sessionEntry?.origin?.label ?? "channel";
+        let target = "";
+        if (sessionEntry?.origin?.from) {
+          const match = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
+          if (match) {
+            target = `channel:${match[1]}`;
+          }
+        }
+        if (!target && finalized.GroupChannel) {
+          target = finalized.GroupChannel;
+        }
         await sendMessageSlack(target, responseText);
         return { text: "" };
       } else {
@@ -717,7 +726,16 @@ Now generate the summary for continuing with ${modeLower}:`;
         finalized.Surface === "slack" ||
         finalized.OriginatingChannel === "slack"
       ) {
-        const target = finalized.GroupChannel ?? finalized.GroupSubject ?? sessionEntry?.origin?.label ?? "channel";
+        let target = "";
+        if (sessionEntry?.origin?.from) {
+          const match = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
+          if (match) {
+            target = `channel:${match[1]}`;
+          }
+        }
+        if (!target && finalized.GroupChannel) {
+          target = finalized.GroupChannel;
+        }
         await sendMessageSlack(target, responseText);
         return { text: "" };
       } else {
