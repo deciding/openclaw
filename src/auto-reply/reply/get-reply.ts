@@ -31,6 +31,32 @@ import { initSessionState } from "./session.js";
 import { stageSandboxMedia } from "./stage-sandbox-media.js";
 import { createTypingController } from "./typing.js";
 
+async function recordUserInstruction(params: {
+  projectDir: string;
+  mode: string;
+  instruction: string;
+}): Promise<void> {
+  const { projectDir, mode, instruction } = params;
+  if (!projectDir || !mode || !instruction) {
+    return;
+  }
+
+  const { mkdir, appendFile } = await import("node:fs/promises");
+  const handclawDir = path.join(projectDir, ".handclaw");
+  const fileName = `USER_INSTRUCTIONS_${mode.toUpperCase()}.md`;
+  const filePath = path.join(handclawDir, fileName);
+
+  const timestamp = new Date().toISOString();
+  const entry = `\n## ${timestamp}\n\n${instruction.trim()}\n\n---\n`;
+
+  try {
+    await mkdir(handclawDir, { recursive: true });
+    await appendFile(filePath, entry);
+  } catch (err) {
+    console.log("[DEBUG] Failed to record user instruction:", err);
+  }
+}
+
 function mergeSkillFilters(channelFilter?: string[], agentFilter?: string[]): string[] | undefined {
   const normalize = (list?: string[]) => {
     if (!Array.isArray(list)) {
@@ -539,6 +565,11 @@ Now generate the summary for continuing with ${modeLower}:`;
   if (sessionEntry?.opencodeMode && sessionEntry?.opencodeProjectDir && triggerBodyNormalized) {
     const isCommand = triggerBodyNormalized.startsWith("/");
     if (!isCommand) {
+      await recordUserInstruction({
+        projectDir: sessionEntry.opencodeProjectDir,
+        mode: "opencode",
+        instruction: triggerBodyNormalized,
+      });
       typing.cleanup();
       const responsePrefix = sessionEntry.opencodeResponsePrefix;
 
@@ -659,6 +690,11 @@ Now generate the summary for continuing with ${modeLower}:`;
   if (sessionEntry?.claudeCodeMode && sessionEntry?.claudeCodeProjectDir && triggerBodyNormalized) {
     const isCommand = triggerBodyNormalized.startsWith("/");
     if (!isCommand) {
+      await recordUserInstruction({
+        projectDir: sessionEntry.claudeCodeProjectDir,
+        mode: "claude",
+        instruction: triggerBodyNormalized,
+      });
       typing.cleanup();
       const responsePrefix = sessionEntry.claudeCodeResponsePrefix;
 
@@ -776,6 +812,11 @@ const result = await runClaudeCodeCommand({
   if (sessionEntry?.codexMode && sessionEntry?.codexProjectDir && triggerBodyNormalized) {
     const isCommand = triggerBodyNormalized.startsWith("/");
     if (!isCommand) {
+      await recordUserInstruction({
+        projectDir: sessionEntry.codexProjectDir,
+        mode: "codex",
+        instruction: triggerBodyNormalized,
+      });
       typing.cleanup();
       const responsePrefix = sessionEntry.codexResponsePrefix;
 
