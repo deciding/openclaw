@@ -1,6 +1,8 @@
 import type { SlackEventMiddlewareArgs } from "@slack/bolt";
 import { resolveChannelConfigWrites } from "../../../channels/plugins/config-writes.js";
 import { loadConfig, writeConfigFile } from "../../../config/config.js";
+import { resolveSessionKey, resolveStorePath } from "../../../config/sessions.js";
+import { loadSessionStore, updateSessionStore } from "../../../config/sessions/store.js";
 import { danger, warn } from "../../../globals.js";
 import { enqueueSystemEvent } from "../../../infra/system-events.js";
 import { migrateSlackChannelConfig } from "../../channel-migration.js";
@@ -74,6 +76,43 @@ export function registerSlackChannelEvents(params: { ctx: SlackMonitorContext })
         const channelId = payload.channel?.id;
         const channelName = payload.channel?.name_normalized ?? payload.channel?.name;
         enqueueChannelSystemEvent({ kind: "renamed", channelId, channelName });
+
+        if (!channelId) {
+          return;
+        }
+
+        const sessionKey = resolveSessionKey(ctx.sessionScope, {
+          From: `slack:channel:${channelId}`,
+          ChatType: "channel",
+          Provider: "slack",
+        });
+        const storePath = resolveStorePath(ctx.cfg.session?.store, {
+          agentId: ctx.mainKey,
+        });
+
+        try {
+          const store = loadSessionStore(storePath, { skipCache: true });
+          const entry = store[sessionKey];
+          if (entry) {
+            const hadMode =
+              entry.opencodeMode || entry.claudeCodeMode || entry.codexMode;
+            if (hadMode) {
+              if (entry.origin) {
+                entry.origin.label = `#${channelName}`;
+              }
+              entry.updatedAt = Date.now();
+              store[sessionKey] = entry;
+              await updateSessionStore(storePath, () => store);
+              ctx.runtime.log?.(
+                warn(`[slack] Updated channel label for session ${sessionKey} to ${channelName} for migration on next message`),
+              );
+            }
+          }
+        } catch (err) {
+          ctx.runtime.log?.(
+            warn(`[slack] Failed to update channel label on rename: ${String(err)}`),
+          );
+        }
       } catch (err) {
         ctx.runtime.error?.(danger(`slack channel rename handler failed: ${String(err)}`));
       }

@@ -20,7 +20,7 @@ import { resolveCommandAuthorization } from "../command-auth.js";
 import type { MsgContext } from "../templating.js";
 import { SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
-import { runOpencodeCommand, runOpencodeCommandStreaming, validateProjectDir } from "./commands-opencode.js";
+import { runOpencodeCommand, runOpencodeCommandStreaming, runClaudeCodeCommand, runClaudeCodeCommandStreaming, runCodexCommand, runCodexCommandStreaming, validateProjectDir } from "./commands-opencode.js";
 import { resolveDefaultModel } from "./directive-handling.js";
 import { resolveReplyDirectives } from "./get-reply-directives.js";
 import { handleInlineActions } from "./get-reply-inline-actions.js";
@@ -225,12 +225,20 @@ export async function getReplyFromConfig(
     console.log("[DEBUG] Project dir:", projectDir);
 
 // Check if mode is changing (e.g., codex → opencode)
+// Use OLD mode's project directory to detect the change
     const previousMode = sessionEntry?.codexMode ? "codex" : sessionEntry?.claudeCodeMode ? "claude" : sessionEntry?.opencodeMode ? "opencode" : null;
-    const modeChanged = previousMode && previousMode !== modeLower && projectDir;
+    const previousProjectDir = previousMode === "codex"
+      ? sessionEntry?.codexProjectDir
+      : previousMode === "claude"
+        ? sessionEntry?.claudeCodeProjectDir
+        : previousMode === "opencode"
+          ? sessionEntry?.opencodeProjectDir
+          : null;
+    const modeChanged = previousMode && previousMode !== modeLower && previousProjectDir;
     let migrationMessage = "";
 
     // Run migration if mode changed
-    if (modeChanged && previousMode && previousMode !== currentMode) {
+    if (modeChanged && previousMode && previousMode !== modeLower) {
       typing.cleanup();
       
       const previousChannelLabel = sessionEntry?.origin?.label ?? finalized.GroupChannel ?? finalized.GroupSubject;
@@ -273,42 +281,138 @@ When constructing the summary, try to stick to this template:
 
 Now generate the summary for continuing with ${modeLower}:`;
 
-      const { runOpencodeCommand, runClaudeCodeCommand, runCodexCommand } = await import("./commands-opencode.js");
-      
-      let summaryResult: { text: string; error?: string; responsePrefix?: string } = { text: "" };
-      let oldProjectDir = "";
-      
-      if (previousMode === "codex") {
-        oldProjectDir = sessionEntry?.codexProjectDir || projectDir;
-        console.log("[MIGRATION] Running Codex plan command with:", { projectDir: oldProjectDir, agent: "plan" });
-        summaryResult = await runCodexCommand({
-          message: migrationPrompt,
-          projectDir: oldProjectDir,
-          agent: "plan",
-        });
-      } else if (previousMode === "claude") {
-        oldProjectDir = sessionEntry?.claudeCodeProjectDir || projectDir;
-        console.log("[MIGRATION] Running Claude Code plan command with:", { projectDir: oldProjectDir, agent: "plan" });
-        summaryResult = await runClaudeCodeCommand({
-          message: migrationPrompt,
-          projectDir: oldProjectDir,
-          agent: "plan",
-        });
-      } else if (previousMode === "opencode") {
-        oldProjectDir = sessionEntry?.opencodeProjectDir || projectDir;
-        console.log("[MIGRATION] Running OpenCode plan command with:", { projectDir: oldProjectDir, agent: "plan" });
-        summaryResult = await runOpencodeCommand({
-          message: migrationPrompt,
-          projectDir: oldProjectDir,
-          agent: "plan",
-        });
+      const {
+        runOpencodeCommand,
+        runClaudeCodeCommand,
+        runCodexCommand,
+        runOpencodeCommandStreaming,
+        runClaudeCodeCommandStreaming,
+        runCodexCommandStreaming,
+      } = await import("./commands-opencode.js");
+
+      const isSlack =
+        finalized.Provider === "slack" ||
+        finalized.Surface === "slack" ||
+        finalized.OriginatingChannel === "slack";
+
+      let channelId: string | null = null;
+      let threadId: string | null = null;
+
+      if (isSlack) {
+        if (sessionEntry?.origin?.from) {
+          const match = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
+          if (match) {
+            channelId = match[1].toUpperCase();
+          }
+        }
+        if (!channelId && sessionEntry.origin?.to) {
+          const match = sessionEntry.origin.to.match(/channel:([^:]+)/i);
+          if (match) {
+            channelId = match[1].toUpperCase();
+          }
+        }
+        if (!channelId) {
+          const channelMatch = sessionKey?.match(/slack:channel:([^:]+)/i);
+          if (channelMatch) {
+            channelId = channelMatch[1].toUpperCase();
+          }
+        }
+        const threadMatch = sessionKey?.match(/slack:channel:[^:]+:thread:([^:]+)/);
+        threadId = threadMatch ? threadMatch[1] : null;
+      }
+
+      let oldProjectDir = previousProjectDir || projectDir;
+      let summaryText = "";
+      let summaryError = "";
+      const responsePrefix = `[${modeLower}:${projectName}|plan]`;
+
+      if (isSlack && channelId) {
+        const target = `channel:${channelId}`;
+        const threadOpts = threadId ? { threadTs: threadId } : {};
+
+        const thinkingMsg = await sendMessageSlack(
+          target,
+          `${responsePrefix} 🤔 Generating migration summary...`,
+          threadOpts,
+        );
+
+        let fullOutput = "";
+        let lastUpdate = Date.now();
+
+        const runStreaming = async (
+          streamingFn: (params: {
+            message: string;
+            projectDir: string;
+            agent: string;
+            onChunk: (chunk: string) => void;
+          }) => Promise<{ error?: string }>,
+        ) => {
+          await streamingFn({
+            message: migrationPrompt,
+            projectDir: oldProjectDir,
+            agent: "plan",
+            onChunk: async (chunk: string) => {
+              fullOutput += chunk;
+              const now = Date.now();
+              if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
+                lastUpdate = now;
+                const displayText = fullOutput.slice(-3000);
+                await editSlackMessage(channelId!, thinkingMsg.messageId, `${responsePrefix}\n${displayText}`);
+              }
+            },
+          });
+          summaryText = fullOutput;
+        };
+
+        if (previousMode === "codex") {
+          console.log("[MIGRATION] Running Codex plan command with:", { projectDir: oldProjectDir, agent: "plan" });
+          await runStreaming(runCodexCommandStreaming);
+        } else if (previousMode === "claude") {
+          console.log("[MIGRATION] Running Claude Code plan command with:", { projectDir: oldProjectDir, agent: "plan" });
+          await runStreaming(runClaudeCodeCommandStreaming);
+        } else if (previousMode === "opencode") {
+          console.log("[MIGRATION] Running OpenCode plan command with:", { projectDir: oldProjectDir, agent: "plan" });
+          await runStreaming(runOpencodeCommandStreaming);
+        }
+
+        const finalText = summaryText.slice(-3000);
+        await editSlackMessage(channelId, thinkingMsg.messageId, `${responsePrefix}\n${finalText}`);
+      } else {
+        if (previousMode === "codex") {
+          console.log("[MIGRATION] Running Codex plan command with:", { projectDir: oldProjectDir, agent: "plan" });
+          const result = await runCodexCommand({
+            message: migrationPrompt,
+            projectDir: oldProjectDir,
+            agent: "plan",
+          });
+          summaryText = result.text;
+          summaryError = result.error || "";
+        } else if (previousMode === "claude") {
+          console.log("[MIGRATION] Running Claude Code plan command with:", { projectDir: oldProjectDir, agent: "plan" });
+          const result = await runClaudeCodeCommand({
+            message: migrationPrompt,
+            projectDir: oldProjectDir,
+            agent: "plan",
+          });
+          summaryText = result.text;
+          summaryError = result.error || "";
+        } else if (previousMode === "opencode") {
+          console.log("[MIGRATION] Running OpenCode plan command with:", { projectDir: oldProjectDir, agent: "plan" });
+          const result = await runOpencodeCommand({
+            message: migrationPrompt,
+            projectDir: oldProjectDir,
+            agent: "plan",
+          });
+          summaryText = result.text;
+          summaryError = result.error || "";
+        }
       }
 
       const { mkdir, writeFile } = await import("node:fs/promises");
       const migrationDir = path.join(oldProjectDir, ".handclaw");
       try {
         await mkdir(migrationDir, { recursive: true });
-        await writeFile(migrationPath, summaryResult.text || summaryResult.error || "No summary generated");
+        await writeFile(migrationPath, summaryText || summaryError || "No summary generated");
         console.log("[DEBUG] Migration saved to:", migrationPath);
       } catch (writeErr) {
         console.log("[DEBUG] Failed to write migration file:", writeErr);
@@ -319,7 +423,9 @@ Now generate the summary for continuing with ${modeLower}:`;
     }
 
     // Enter/switch mode if needed
-    if (projectDir && (needsSwitch || !currentMode || modeChanged)) {
+    // Use previousProjectDir if modeChanged (migration case), otherwise use projectDir
+    const effectiveProjectDir = modeChanged ? (previousProjectDir || projectDir) : projectDir;
+    if (effectiveProjectDir && (needsSwitch || !currentMode || modeChanged)) {
       typing.cleanup();
 
       // Clear all old mode fields first
@@ -338,7 +444,7 @@ Now generate the summary for continuing with ${modeLower}:`;
 
       if (isOpencode) {
         sessionEntry.opencodeMode = true;
-        sessionEntry.opencodeProjectDir = projectDir;
+        sessionEntry.opencodeProjectDir = effectiveProjectDir;
         sessionEntry.opencodeAgent = sessionEntry.opencodeAgent || "build";
         sessionEntry.opencodeResponsePrefix = `[opencode:${projectName}|${sessionEntry.opencodeAgent}]`;
         // Clear other modes
@@ -346,7 +452,7 @@ Now generate the summary for continuing with ${modeLower}:`;
         sessionEntry.codexMode = false;
       } else if (isClaudeCode) {
         sessionEntry.claudeCodeMode = true;
-        sessionEntry.claudeCodeProjectDir = projectDir;
+        sessionEntry.claudeCodeProjectDir = effectiveProjectDir;
         sessionEntry.claudeCodeAgent = sessionEntry.claudeCodeAgent || "build";
         sessionEntry.claudeCodeResponsePrefix = `[claude:${projectName}|${sessionEntry.claudeCodeAgent}]`;
         // Clear other modes
@@ -354,7 +460,7 @@ Now generate the summary for continuing with ${modeLower}:`;
         sessionEntry.codexMode = false;
       } else if (isCodex) {
         sessionEntry.codexMode = true;
-        sessionEntry.codexProjectDir = projectDir;
+        sessionEntry.codexProjectDir = effectiveProjectDir;
         sessionEntry.codexAgent = sessionEntry.codexAgent || "build";
         sessionEntry.codexResponsePrefix = `[codex:${projectName}|${sessionEntry.codexAgent}]`;
         // Clear other modes
