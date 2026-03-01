@@ -234,22 +234,16 @@ export async function getReplyFromConfig(
         : previousMode === "opencode"
           ? sessionEntry?.opencodeProjectDir
           : null;
-    console.log("[DEBUG] Previous mode:", previousMode);
-    console.log("[DEBUG] Previous project dir:", previousProjectDir);
-    console.log("[DEBUG] Mode lower:", modeLower);
     const modeChanged = previousMode && previousMode !== modeLower && previousProjectDir;
-    console.log("[DEBUG] Mode changed:", modeChanged);
+    console.log("[MODE] Previous mode:", previousMode, "| Current mode:", modeLower, "| Project dir:", previousProjectDir);
+    console.log("[MODE] Migration needed:", modeChanged ? "YES" : "NO");
     let migrationMessage = "";
 
     // Run migration if mode changed
     if (modeChanged && previousMode && previousMode !== modeLower) {
       typing.cleanup();
       
-      const previousChannelLabel = sessionEntry?.origin?.label ?? finalized.GroupChannel ?? finalized.GroupSubject;
-      console.log("[MIGRATION] Previous channel:", previousChannelLabel);
-      console.log("[MIGRATION] Current channel:", channelLabel);
-      console.log("[MIGRATION] Mode change:", previousMode, "→", modeLower);
-      console.log("[MIGRATION] Should migrate:", modeChanged);
+      console.log("[MIGRATION] Starting:", previousMode, "→", modeLower);
       
       const migrationFileName = `migration_from_${previousMode}.md`;
       const migrationPath = path.join(projectDir, ".handclaw", migrationFileName);
