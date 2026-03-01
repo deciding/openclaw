@@ -232,8 +232,15 @@ export async function getReplyFromConfig(
     if (modeChanged && previousMode && previousMode !== currentMode) {
       typing.cleanup();
       
+      const previousChannelLabel = sessionEntry?.origin?.label ?? finalized.GroupChannel ?? finalized.GroupSubject;
+      console.log("[MIGRATION] Previous channel:", previousChannelLabel);
+      console.log("[MIGRATION] Current channel:", channelLabel);
+      console.log("[MIGRATION] Mode change:", previousMode, "→", modeLower);
+      console.log("[MIGRATION] Should migrate:", modeChanged);
+      
       const migrationFileName = `migration_from_${previousMode}.md`;
       const migrationPath = path.join(projectDir, ".handclaw", migrationFileName);
+      console.log("[MIGRATION] Migration file:", migrationPath);
 
       const migrationPrompt = `Provide a detailed prompt for continuing our conversation above.
 Focus on information that would be helpful for continuing the conversation, including what we did, what we're doing, which files we're working on, and what we're going to do next.
@@ -272,6 +279,7 @@ Now generate the summary for continuing with ${modeLower}:`;
       
       if (previousMode === "codex") {
         oldProjectDir = sessionEntry?.codexProjectDir || projectDir;
+        console.log("[MIGRATION] Running Codex plan command with:", { projectDir: oldProjectDir, agent: "plan" });
         summaryResult = await runCodexCommand({
           message: migrationPrompt,
           projectDir: oldProjectDir,
@@ -279,6 +287,7 @@ Now generate the summary for continuing with ${modeLower}:`;
         });
       } else if (previousMode === "claude") {
         oldProjectDir = sessionEntry?.claudeCodeProjectDir || projectDir;
+        console.log("[MIGRATION] Running Claude Code plan command with:", { projectDir: oldProjectDir, agent: "plan" });
         summaryResult = await runClaudeCodeCommand({
           message: migrationPrompt,
           projectDir: oldProjectDir,
@@ -286,6 +295,7 @@ Now generate the summary for continuing with ${modeLower}:`;
         });
       } else if (previousMode === "opencode") {
         oldProjectDir = sessionEntry?.opencodeProjectDir || projectDir;
+        console.log("[MIGRATION] Running OpenCode plan command with:", { projectDir: oldProjectDir, agent: "plan" });
         summaryResult = await runOpencodeCommand({
           message: migrationPrompt,
           projectDir: oldProjectDir,
