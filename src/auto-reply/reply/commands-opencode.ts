@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import type { SessionEntry } from "../../config/sessions.js";
 import { updateSessionStore } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
@@ -30,8 +32,6 @@ export function calculateAutoLevel(params: {
   mode: string;
 }): AutoLevelResult {
   const { projectDir, mode } = params;
-  const { existsSync: existsSyncSync, readFileSync } = require("node:fs");
-  const { mkdir, writeFile } = require("node:fs/promises");
 
   const handclawDir = path.join(projectDir, ".handclaw");
   const fileName = `USER_FEEDBACK_${mode.toUpperCase()}.md`;
@@ -40,7 +40,7 @@ export function calculateAutoLevel(params: {
   let totalRequests = 1;
   let totalAccepted = 0;
 
-  if (existsSyncSync(filePath)) {
+  if (existsSync(filePath)) {
     try {
       const content = readFileSync(filePath, "utf-8");
       const codingMatch = content.match(/coding_requests:\s*(\d+)/i);
