@@ -234,7 +234,11 @@ export async function getReplyFromConfig(
         : previousMode === "opencode"
           ? sessionEntry?.opencodeProjectDir
           : null;
+    console.log("[DEBUG] Previous mode:", previousMode);
+    console.log("[DEBUG] Previous project dir:", previousProjectDir);
+    console.log("[DEBUG] Mode lower:", modeLower);
     const modeChanged = previousMode && previousMode !== modeLower && previousProjectDir;
+    console.log("[DEBUG] Mode changed:", modeChanged);
     let migrationMessage = "";
 
     // Run migration if mode changed
