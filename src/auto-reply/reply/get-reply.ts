@@ -41,7 +41,8 @@ async function recordUserInstruction(params: {
     return;
   }
 
-  const { mkdir, appendFile } = await import("node:fs/promises");
+  const { mkdir, appendFile, writeFile } = await import("node:fs/promises");
+  const { existsSync, readFileSync } = await import("node:fs");
   const handclawDir = path.join(projectDir, ".handclaw");
   const fileName = `USER_INSTRUCTIONS_${mode.toUpperCase()}.md`;
   const filePath = path.join(handclawDir, fileName);
@@ -52,8 +53,148 @@ async function recordUserInstruction(params: {
   try {
     await mkdir(handclawDir, { recursive: true });
     await appendFile(filePath, entry);
+
+    const content = existsSync(filePath) ? readFileSync(filePath, "utf-8") : "";
+    const lineCount = content.split("\n").filter((l: string) => l.trim()).length;
+
+    if (lineCount > 500) {
+      console.log(`[USER_FEEDBACK] Instructions file exceeds 500 lines (${lineCount}), triggering summarization`);
+      await summarizeUserInstructions({
+        projectDir,
+        mode,
+        instructionsFilePath: filePath,
+      });
+    }
   } catch (err) {
     console.log("[DEBUG] Failed to record user instruction:", err);
+  }
+}
+
+async function summarizeUserInstructions(params: {
+  projectDir: string;
+  mode: string;
+  instructionsFilePath: string;
+}): Promise<void> {
+  const { projectDir, mode, instructionsFilePath } = params;
+  const { readFileSync, existsSync } = await import("node:fs");
+  const { writeFile } = await import("node:fs/promises");
+
+  try {
+    const content = existsSync(instructionsFilePath) ? readFileSync(instructionsFilePath, "utf-8") : "";
+    const lines = content.split("\n");
+    const recentLines = lines.slice(-600);
+    const recentContent = recentLines.join("\n");
+
+    const prompt = `Analyze the following user instructions for a ${mode} coding session.
+
+For each instruction entry (separated by "---"), determine:
+1. Is this a "coding request" (non-plan, i.e., asking for code/implementation/something to be done)?
+2. Was this request "accepted" (user approved/went ahead with the proposed code or the request was fulfilled)?
+
+Count and report ONLY these two numbers in this exact format:
+total_coding_requests: <number>
+total_codes_accepted: <number>
+
+Instructions:
+${recentContent}`;
+
+    let resultText = "";
+    let resultError = "";
+
+    if (mode === "opencode") {
+      const { runOpencodeCommand } = await import("./commands-opencode.js");
+      const result = await runOpencodeCommand({
+        message: prompt,
+        projectDir,
+        agent: "plan",
+      });
+      resultText = result.text;
+      resultError = result.error || "";
+    } else if (mode === "claude") {
+      const { runClaudeCodeCommand } = await import("./commands-opencode.js");
+      const result = await runClaudeCodeCommand({
+        message: prompt,
+        projectDir,
+        agent: "plan",
+      });
+      resultText = result.text;
+      resultError = result.error || "";
+    } else if (mode === "codex") {
+      const { runCodexCommand } = await import("./commands-opencode.js");
+      const result = await runCodexCommand({
+        message: prompt,
+        projectDir,
+        agent: "plan",
+      });
+      resultText = result.text;
+      resultError = result.error || "";
+    }
+
+    console.log("[USER_FEEDBACK] LLM response:", resultText);
+
+    const codingRequestsMatch = resultText.match(/total_coding_requests:\s*(\d+)/i);
+    const codesAcceptedMatch = resultText.match(/total_codes_accepted:\s*(\d+)/i);
+
+    const newCodingRequests = codingRequestsMatch ? parseInt(codingRequestsMatch[1], 10) : 0;
+    const newCodesAccepted = codesAcceptedMatch ? parseInt(codesAcceptedMatch[1], 10) : 0;
+
+    if (newCodingRequests > 0 || newCodesAccepted > 0) {
+      await updateUserFeedback({
+        projectDir,
+        mode,
+        newCodingRequests,
+        newCodesAccepted,
+      });
+    }
+
+    await writeFile(instructionsFilePath, "");
+    console.log("[USER_FEEDBACK] Instructions file cleared after summarization");
+  } catch (err) {
+    console.log("[USER_FEEDBACK] Failed to summarize instructions:", err);
+  }
+}
+
+async function updateUserFeedback(params: {
+  projectDir: string;
+  mode: string;
+  newCodingRequests: number;
+  newCodesAccepted: number;
+}): Promise<void> {
+  const { projectDir, mode, newCodingRequests, newCodesAccepted } = params;
+  const { mkdir, readFile, writeFile } = await import("node:fs/promises");
+  const { existsSync } = await import("node:fs");
+  const handclawDir = path.join(projectDir, ".handclaw");
+  const fileName = `USER_FEEDBACK_${mode.toUpperCase()}.md`;
+  const filePath = path.join(handclawDir, fileName);
+
+  let existingCodingRequests = 0;
+  let existingCodesAccepted = 0;
+
+  try {
+    if (existsSync(filePath)) {
+      const content = await readFile(filePath, "utf-8");
+      const codingMatch = content.match(/coding_requests:\s*(\d+)/i);
+      const acceptedMatch = content.match(/codes_accepted:\s*(\d+)/i);
+      existingCodingRequests = codingMatch ? parseInt(codingMatch[1], 10) : 0;
+      existingCodesAccepted = acceptedMatch ? parseInt(acceptedMatch[1], 10) : 0;
+    }
+
+    const totalCodingRequests = existingCodingRequests + newCodingRequests;
+    const totalCodesAccepted = existingCodesAccepted + newCodesAccepted;
+    const timestamp = new Date().toISOString();
+
+    const feedbackContent = `# Code Feedback - ${mode}
+
+coding_requests: ${totalCodingRequests}
+codes_accepted: ${totalCodesAccepted}
+last_updated: ${timestamp}
+`;
+
+    await mkdir(handclawDir, { recursive: true });
+    await writeFile(filePath, feedbackContent);
+    console.log(`[USER_FEEDBACK] Updated feedback: ${totalCodingRequests} requests, ${totalCodesAccepted} accepted`);
+  } catch (err) {
+    console.log("[USER_FEEDBACK] Failed to update feedback:", err);
   }
 }
 
