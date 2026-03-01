@@ -171,7 +171,8 @@ export async function getReplyFromConfig(
   } = sessionState;
 
   // Check channel name for auto-enter coding agent mode (e.g., #opencode-myrepo, #claude-myrepo, #codex-myrepo)
-  const channelLabel = sessionEntry?.origin?.label ?? finalized.GroupChannel ?? finalized.GroupSubject;
+  // Check finalized.GroupChannel FIRST (current channel name) then fall back to session origin (may be stale)
+  const channelLabel = finalized.GroupChannel ?? finalized.GroupSubject ?? sessionEntry?.origin?.label;
   console.log("[DEBUG] Channel label:", channelLabel);
   const channelNameMatch = channelLabel?.match(/^#?(opencode|claude|codex)[-:](.+)$/i);
   console.log("[DEBUG] Channel name match:", channelNameMatch);
