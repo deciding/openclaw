@@ -223,9 +223,107 @@ export async function getReplyFromConfig(
     }
     console.log("[DEBUG] Project dir:", projectDir);
 
-    // Enter/switch mode if needed
-    if (projectDir && (needsSwitch || !currentMode)) {
+// Check if mode is changing (e.g., codex → opencode)
+    const previousMode = sessionEntry?.codexMode ? "codex" : sessionEntry?.claudeCodeMode ? "claude" : sessionEntry?.opencodeMode ? "opencode" : null;
+    const modeChanged = previousMode && previousMode !== modeLower && projectDir;
+    let migrationMessage = "";
+
+    // Run migration if mode changed
+    if (modeChanged && previousMode && previousMode !== currentMode) {
       typing.cleanup();
+      
+      const migrationFileName = `migration_from_${previousMode}.md`;
+      const migrationPath = path.join(projectDir, ".handclaw", migrationFileName);
+
+      const migrationPrompt = `Provide a detailed prompt for continuing our conversation above.
+Focus on information that would be helpful for continuing the conversation, including what we did, what we're doing, which files we're working on, and what we're going to do next.
+The summary that you construct will be used so that another agent can read it and continue the work.
+
+When constructing the summary, try to stick to this template:
+---
+## Goal
+
+[What goal(s) is the user trying to accomplish?]
+
+## Instructions
+
+- [What important instructions did the user give you that are relevant]
+- [If there is a plan or spec, include information about it so next agent can continue using it]
+
+## Discoveries
+
+[What notable things were learned during this conversation that would be useful for the next agent to know when continuing the work]
+
+## Accomplished
+
+[What work has been completed, what work is still in progress, and what work is left?]
+
+## Relevant files / directories
+
+[Construct a structured list of relevant files that have been read, edited, or created that pertain to the task at hand. If all the files in a directory are relevant, include the path to the directory.]
+---
+
+Now generate the summary for continuing with ${modeLower}:`;
+
+      const { runOpencodeCommand, runClaudeCodeCommand, runCodexCommand } = await import("./commands-opencode.js");
+      
+      let summaryResult: { text: string; error?: string; responsePrefix?: string } = { text: "" };
+      let oldProjectDir = "";
+      
+      if (previousMode === "codex") {
+        oldProjectDir = sessionEntry?.codexProjectDir || projectDir;
+        summaryResult = await runCodexCommand({
+          message: migrationPrompt,
+          projectDir: oldProjectDir,
+          agent: "plan",
+        });
+      } else if (previousMode === "claude") {
+        oldProjectDir = sessionEntry?.claudeCodeProjectDir || projectDir;
+        summaryResult = await runClaudeCodeCommand({
+          message: migrationPrompt,
+          projectDir: oldProjectDir,
+          agent: "plan",
+        });
+      } else if (previousMode === "opencode") {
+        oldProjectDir = sessionEntry?.opencodeProjectDir || projectDir;
+        summaryResult = await runOpencodeCommand({
+          message: migrationPrompt,
+          projectDir: oldProjectDir,
+          agent: "plan",
+        });
+      }
+
+      const { mkdir, writeFile } = await import("node:fs/promises");
+      const migrationDir = path.join(oldProjectDir, ".handclaw");
+      try {
+        await mkdir(migrationDir, { recursive: true });
+        await writeFile(migrationPath, summaryResult.text || summaryResult.error || "No summary generated");
+        console.log("[DEBUG] Migration saved to:", migrationPath);
+      } catch (writeErr) {
+        console.log("[DEBUG] Failed to write migration file:", writeErr);
+      }
+
+      migrationMessage = `\n\n📦 Migrated from ${previousMode} → ${modeLower}. Summary saved to \`${migrationPath}\``;
+      console.log("[DEBUG] Migration completed for:", previousMode, "→", modeLower);
+    }
+
+    // Enter/switch mode if needed
+    if (projectDir && (needsSwitch || !currentMode || modeChanged)) {
+      typing.cleanup();
+
+      // Clear all old mode fields first
+      sessionEntry.opencodeMode = false;
+      sessionEntry.opencodeProjectDir = undefined;
+      sessionEntry.opencodeAgent = undefined;
+      sessionEntry.opencodeResponsePrefix = undefined;
+      sessionEntry.claudeCodeMode = false;
+      sessionEntry.claudeCodeProjectDir = undefined;
+      sessionEntry.claudeCodeAgent = undefined;
+      sessionEntry.claudeCodeResponsePrefix = undefined;
+      sessionEntry.codexMode = false;
+      sessionEntry.codexProjectDir = undefined;
+      sessionEntry.codexAgent = undefined;
+      sessionEntry.codexResponsePrefix = undefined;
 
       if (isOpencode) {
         sessionEntry.opencodeMode = true;
@@ -263,7 +361,7 @@ export async function getReplyFromConfig(
 
       const modeLabel = isOpencode ? "opencode" : isClaudeCode ? "Claude Code" : "Codex";
       return {
-        text: `🔓 Entered ${modeLabel} mode!\n\nProject: ${projectDir}\n\nAll messages will now be forwarded to ${modeLabel} CLI.`,
+        text: `🔓 Entered ${modeLabel} mode!\n\nProject: ${projectDir}\n\nAll messages will now be forwarded to ${modeLabel} CLI.${migrationMessage}`,
       };
     }
   }
