@@ -566,16 +566,23 @@ async function findCodexBinary(): Promise<string> {
 export async function runClaudeCodeCommand(params: {
   message: string;
   projectDir: string;
+  agent?: string;
   model?: string;
 }): Promise<{ text: string; error?: string; responsePrefix?: string }> {
   const claudePath = await findClaudeCodeBinary();
   const repoName = getRepoName(params.projectDir);
-  const responsePrefix = `[claude:${repoName}]`;
+  const responsePrefix = `[claude:${repoName}|${params.agent || "build"}]`;
 
-  const args = ["--print", params.message];
+  const args = ["-c", "-p"];
+
+  if (params.agent) {
+    args.push("--agent", params.agent);
+  }
+
+  args.push(params.message);
 
   if (params.model) {
-    args.unshift("--model", params.model);
+    args.push("--model", params.model);
   }
 
   try {
@@ -602,15 +609,22 @@ export async function runClaudeCodeCommand(params: {
 export async function runClaudeCodeCommandStreaming(params: {
   message: string;
   projectDir: string;
+  agent?: string;
   model?: string;
   onChunk: (chunk: string) => void;
 }): Promise<{ error?: string }> {
   const claudePath = await findClaudeCodeBinary();
 
-  const args = ["--print", params.message];
+  const args = ["-c", "-p"];
+
+  if (params.agent) {
+    args.push("--agent", params.agent);
+  }
+
+  args.push(params.message);
 
   if (params.model) {
-    args.unshift("--model", params.model);
+    args.push("--model", params.model);
   }
 
   return new Promise((resolve) => {
@@ -658,13 +672,27 @@ export async function runClaudeCodeCommandStreaming(params: {
 export async function runCodexCommand(params: {
   message: string;
   projectDir: string;
+  agent?: string;
   model?: string;
 }): Promise<{ text: string; error?: string; responsePrefix?: string }> {
   const codexPath = await findCodexBinary();
   const repoName = getRepoName(params.projectDir);
-  const responsePrefix = `[codex:${repoName}]`;
+  const responsePrefix = `[codex:${repoName}|${params.agent || "build"}]`;
 
-  const args = ["exec", params.message];
+  const args = ["exec"];
+
+  if (params.projectDir) {
+    args.push("-C", params.projectDir);
+  }
+
+  if (params.agent === "plan") {
+    args.push("--sandbox", "read-only");
+  }
+
+  // Always continue last session
+  args.push("resume", "--last");
+
+  args.push(params.message);
 
   if (params.model) {
     args.push("--model", params.model);
@@ -673,7 +701,6 @@ export async function runCodexCommand(params: {
   try {
     const result = await runCommandWithTimeout([codexPath, ...args], {
       timeoutMs: CODEX_TIMEOUT_MS,
-      cwd: params.projectDir,
     });
 
     if (result.termination === "timeout") {
@@ -694,12 +721,26 @@ export async function runCodexCommand(params: {
 export async function runCodexCommandStreaming(params: {
   message: string;
   projectDir: string;
+  agent?: string;
   model?: string;
   onChunk: (chunk: string) => void;
 }): Promise<{ error?: string }> {
   const codexPath = await findCodexBinary();
 
-  const args = ["exec", params.message];
+  const args = ["exec"];
+
+  if (params.projectDir) {
+    args.push("-C", params.projectDir);
+  }
+
+  if (params.agent === "plan") {
+    args.push("--sandbox", "read-only");
+  }
+
+  // Always continue last session
+  args.push("resume", "--last");
+
+  args.push(params.message);
 
   if (params.model) {
     args.push("--model", params.model);
@@ -707,7 +748,6 @@ export async function runCodexCommandStreaming(params: {
 
   return new Promise((resolve) => {
     const child = spawn(codexPath, args, {
-      cwd: params.projectDir,
       stdio: ["ignore", "pipe", "pipe"],
     });
 

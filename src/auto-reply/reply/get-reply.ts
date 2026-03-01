@@ -464,6 +464,7 @@ export async function getReplyFromConfig(
           const result = await runClaudeCodeCommand({
             message: triggerBodyNormalized,
             projectDir: sessionEntry.claudeCodeProjectDir,
+            agent: sessionEntry.claudeCodeAgent,
             model: sessionEntry.claudeCodeModel,
           });
           if (result.error) {
@@ -485,6 +486,7 @@ export async function getReplyFromConfig(
           const result = await runClaudeCodeCommand({
             message: triggerBodyNormalized,
             projectDir: sessionEntry.claudeCodeProjectDir,
+            agent: sessionEntry.claudeCodeAgent,
             model: sessionEntry.claudeCodeModel,
           });
           if (result.error) {
@@ -498,6 +500,7 @@ export async function getReplyFromConfig(
         await runClaudeCodeCommandStreaming({
           message: triggerBodyNormalized,
           projectDir: sessionEntry.claudeCodeProjectDir,
+          agent: sessionEntry.claudeCodeAgent,
           model: sessionEntry.claudeCodeModel,
           onChunk: async (chunk) => {
             fullOutput += chunk;
@@ -520,9 +523,10 @@ export async function getReplyFromConfig(
         return { text: "", channelData: { responsePrefix } };
       }
 
-      const result = await runClaudeCodeCommand({
+const result = await runClaudeCodeCommand({
         message: triggerBodyNormalized,
         projectDir: sessionEntry.claudeCodeProjectDir,
+        agent: sessionEntry.claudeCodeAgent,
         model: sessionEntry.claudeCodeModel,
       });
       if (result.error) {
@@ -577,6 +581,7 @@ export async function getReplyFromConfig(
           const result = await runCodexCommand({
             message: triggerBodyNormalized,
             projectDir: sessionEntry.codexProjectDir,
+            agent: sessionEntry.codexAgent,
             model: sessionEntry.codexModel,
           });
           if (result.error) {
@@ -598,6 +603,7 @@ export async function getReplyFromConfig(
           const result = await runCodexCommand({
             message: triggerBodyNormalized,
             projectDir: sessionEntry.codexProjectDir,
+            agent: sessionEntry.codexAgent,
             model: sessionEntry.codexModel,
           });
           if (result.error) {
@@ -611,6 +617,7 @@ export async function getReplyFromConfig(
         await runCodexCommandStreaming({
           message: triggerBodyNormalized,
           projectDir: sessionEntry.codexProjectDir,
+          agent: sessionEntry.codexAgent,
           model: sessionEntry.codexModel,
           onChunk: async (chunk) => {
             fullOutput += chunk;
@@ -636,6 +643,7 @@ export async function getReplyFromConfig(
       const result = await runCodexCommand({
         message: triggerBodyNormalized,
         projectDir: sessionEntry.codexProjectDir,
+        agent: sessionEntry.codexAgent,
         model: sessionEntry.codexModel,
       });
       if (result.error) {
