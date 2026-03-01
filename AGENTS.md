@@ -117,6 +117,29 @@
 - PR submission template (canonical): `.github/pull_request_template.md`
 - Issue submission templates (canonical): `.github/ISSUE_TEMPLATE/`
 
+### Git Staging Workflow (Critical)
+
+**NEVER use `git add -A`** - it stages ALL files including unintended changes.
+
+**Safe staging practices:**
+1. Always check status first: `git status`
+2. Review changes: `git diff`
+3. Stage specific files only:
+   ```bash
+   # Good - stage specific files
+   git add src/auto-reply/reply/commands-opencode.ts
+   
+   # Or stage specific paths
+   git add src/auto-reply/reply/
+   ```
+4. Alternative: use `git add -u` (only staged modified tracked files)
+5. If you accidentally stage too much, unstaging is safe:
+   ```bash
+   git restore --staged .
+   ```
+
+**The `scripts/committer` helper is recommended** - it handles staging safely.
+
 ## Shorthand Commands
 
 - `sync`: if working tree is dirty, commit all changes (pick a sensible Conventional Commit message), then `git pull --rebase`; if rebase conflicts and cannot resolve, stop; otherwise `git push`.

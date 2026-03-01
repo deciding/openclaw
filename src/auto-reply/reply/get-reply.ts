@@ -268,10 +268,12 @@ export async function getReplyFromConfig(
     }
   }
 
-  // Check for !oc command prefix (direct detection, before normal agent processing)
+  // Check for !code command prefix (direct detection, before normal agent processing)
   // This works for all channels including Slack
   const trimmedBody = triggerBodyNormalized?.trim() ?? "";
-  const isOpencodeCommand = /^!oc(\s|$)/i.test(trimmedBody);
+  const isOpencodeCommand = /^!code(\s|$)/i.test(trimmedBody) ||
+    /^!plan\s/i.test(trimmedBody) ||
+    /^!build\s/i.test(trimmedBody);
 
   if (isOpencodeCommand) {
     typing.cleanup();
@@ -282,6 +284,7 @@ export async function getReplyFromConfig(
       sessionStore,
       sessionKey,
       storePath,
+      channelLabel: channelLabel ?? undefined,
     });
     if (result) {
       return result;

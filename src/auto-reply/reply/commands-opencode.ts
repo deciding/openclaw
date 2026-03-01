@@ -61,17 +61,23 @@ async function persistSessionEntry(params: Parameters<CommandHandler>[0]): Promi
 }
 
 function parseOpencodeCommand(body: string): {
-  action: "enter" | "switch" | "model" | "exit" | null;
+  action: "enter" | "switch" | "model" | "exit" | "plan" | "build" | null;
   value: string;
 } {
   const normalized = body.trim();
-  const commandPrefix = "!oc";
+  const commandPrefix = "!code";
 
   if (normalized === commandPrefix) {
     return { action: null, value: "" };
   }
 
   if (!normalized.toLowerCase().startsWith(commandPrefix)) {
+    if (normalized.toLowerCase().startsWith("!plan ")) {
+      return { action: "plan", value: normalized.slice("!plan".length).trim() };
+    }
+    if (normalized.toLowerCase().startsWith("!build ")) {
+      return { action: "build", value: normalized.slice("!build".length).trim() };
+    }
     return { action: null, value: "" };
   }
 
@@ -134,12 +140,12 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
 
   const { commandBodyNormalized } = params.command;
   const trimmedCommand = commandBodyNormalized.trim();
-  if (!trimmedCommand.toLowerCase().startsWith("!oc")) {
+  if (!trimmedCommand.toLowerCase().startsWith("!code")) {
     return null;
   }
 
   if (!params.command.isAuthorizedSender) {
-    logVerbose(`Ignoring !oc from unauthorized sender: ${params.command.senderId || "<unknown>"}`);
+    logVerbose(`Ignoring !code from unauthorized sender: ${params.command.senderId || "<unknown>"}`);
     return { shouldContinue: false };
   }
 
@@ -153,23 +159,34 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
       sessionEntry.opencodeAgent = undefined;
       sessionEntry.opencodeModel = undefined;
       sessionEntry.opencodeResponsePrefix = undefined;
+      sessionEntry.claudeCodeMode = false;
+      sessionEntry.claudeCodeProjectDir = undefined;
+      sessionEntry.claudeCodeAgent = undefined;
+      sessionEntry.claudeCodeModel = undefined;
+      sessionEntry.claudeCodeResponsePrefix = undefined;
+      sessionEntry.codexMode = false;
+      sessionEntry.codexProjectDir = undefined;
+      sessionEntry.codexAgent = undefined;
+      sessionEntry.codexModel = undefined;
+      sessionEntry.codexResponsePrefix = undefined;
       await persistSessionEntry(params);
     }
 
     return {
       shouldContinue: false,
       reply: {
-        text: "🚪 Exited opencode mode. Messages will now go to the normal OpenClaw agent.",
+        text: "🚪 Exited coding mode. Messages will now go to the normal OpenClaw agent.",
       },
     };
   }
 
   if (parsed.action === "switch") {
-    if (!sessionEntry?.opencodeMode) {
+    const currentMode = sessionEntry?.opencodeMode ? "opencode" : sessionEntry?.claudeCodeMode ? "claude" : sessionEntry?.codexMode ? "codex" : null;
+    if (!currentMode || !sessionEntry) {
       return {
         shouldContinue: false,
         reply: {
-          text: "❌ Not in opencode mode. Use `!oc [project_dir]` to enter opencode mode first.",
+          text: "❌ Not in coding mode. Use `!code [project_dir]` to enter coding mode first.",
         },
       };
     }
@@ -187,22 +204,20 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
     };
   }
 
-  if (parsed.action === "model") {
-    if (!sessionEntry?.opencodeMode) {
+if (parsed.action === "model") {
+    const currentMode = sessionEntry?.opencodeMode ? "opencode" : sessionEntry?.claudeCodeMode ? "claude" : sessionEntry?.codexMode ? "codex" : null;
+    if (!currentMode || !sessionEntry) {
       return {
         shouldContinue: false,
-        reply: {
-          text: "❌ Not in opencode mode. Use `!oc [project_dir]` to enter opencode mode first.",
-        },
+        reply: { text: "❌ Not in coding mode. Use `!code [project_dir]` to enter coding mode first." },
       };
     }
-
     if (!parsed.value) {
       sessionEntry.opencodeModel = undefined;
       await persistSessionEntry(params);
       return {
         shouldContinue: false,
-        reply: { text: "🧹 Opencode model cleared (will use opencode's default)." },
+        reply: { text: "🧹 Model cleared (will use default)." },
       };
     }
 
@@ -211,7 +226,7 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
 
     return {
       shouldContinue: false,
-      reply: { text: `📦 Opencode model set to: ${sessionEntry.opencodeModel}` },
+      reply: { text: `📦 Model set to: ${sessionEntry.opencodeModel}` },
     };
   }
 
@@ -244,7 +259,7 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
           `Project: ${projectDir}\n` +
           `Agent: ${sessionEntry?.opencodeAgent || DEFAULT_OPENCODE_AGENT}\n` +
           `Model: ${sessionEntry?.opencodeModel || "default"}\n\n` +
-          "All messages will now be forwarded to opencode CLI. Use !oc exit to leave.",
+          "All messages will now be forwarded to opencode CLI. Use !code exit to leave.",
       },
     };
   }
@@ -260,10 +275,10 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
       text:
         `OpenCode Mode${isActive ? " (active)" : ""}\n\n` +
         `Usage:\n` +
-        `• !oc [proj_dir] - Enter opencode mode\n` +
-        `• !oc switch [agent] - Change agent (default: plan/build)\n` +
-        `• !oc model [model] - Set model\n` +
-        `• !oc exit - Exit opencode mode\n\n` +
+        `• !code [proj_dir] - Enter opencode mode\n` +
+        `• !code switch [agent] - Change agent (default: plan/build)\n` +
+        `• !code model [model] - Set model\n` +
+        `• !code exit - Exit opencode mode\n\n` +
         `Current:\n` +
         `• Project: ${currentProject}\n` +
         `• Agent: ${currentAgent}\n` +
@@ -380,24 +395,33 @@ export async function handleOpencodeCommandDirect(params: {
   sessionStore?: Record<string, SessionEntry>;
   sessionKey?: string;
   storePath?: string;
+  channelLabel?: string;
 }): Promise<ReplyPayload | null> {
-  const { commandBody, sessionEntry, sessionStore, sessionKey, storePath } = params;
+  const { commandBody, sessionEntry, sessionStore, sessionKey, storePath, channelLabel } = params;
 
   const parsed = parseOpencodeCommand(commandBody);
 
   if (!parsed.action) {
+    const currentMode = sessionEntry?.opencodeMode ? "opencode" : sessionEntry?.claudeCodeMode ? "claude" : sessionEntry?.codexMode ? "codex" : null;
+    const currentProject = sessionEntry?.opencodeProjectDir || sessionEntry?.claudeCodeProjectDir || sessionEntry?.codexProjectDir || "none";
+    const currentAgent = sessionEntry?.opencodeAgent || sessionEntry?.claudeCodeAgent || sessionEntry?.codexAgent || "plan/build";
+    const currentModel = sessionEntry?.opencodeModel || sessionEntry?.claudeCodeModel || sessionEntry?.codexModel || "default";
+
     return {
       text:
-        "OpenCode Mode\n\n" +
+        "Coding Mode\n\n" +
         "Usage:\n" +
-        `• !oc [proj_dir] - Enter opencode mode\n` +
-        `• !oc switch [agent] - Change agent (default: plan/build)\n` +
-        `• !oc model [model] - Set model\n` +
-        `• !oc exit - Exit opencode mode\n\n` +
+        `• !code [proj_dir] - Enter coding mode\n` +
+        `• !code switch [agent] - Change agent (default: plan/build)\n` +
+        `• !code model [model] - Set model\n` +
+        `• !code exit - Exit coding mode\n` +
+        `• !plan <msg> - Run with plan agent\n` +
+        `• !build <msg> - Run with build agent\n\n` +
         `Current:\n` +
-        `• Project: ${sessionEntry?.opencodeProjectDir || "none"}\n` +
-        `• Agent: ${sessionEntry?.opencodeAgent || "plan/build"}\n` +
-        `• Model: ${sessionEntry?.opencodeModel || "default"}`,
+        `• Mode: ${currentMode || "none"}\n` +
+        `• Project: ${currentProject}\n` +
+        `• Agent: ${currentAgent}\n` +
+        `• Model: ${currentModel}`,
     };
   }
 
@@ -408,6 +432,16 @@ export async function handleOpencodeCommandDirect(params: {
       sessionEntry.opencodeAgent = undefined;
       sessionEntry.opencodeModel = undefined;
       sessionEntry.opencodeResponsePrefix = undefined;
+      sessionEntry.claudeCodeMode = false;
+      sessionEntry.claudeCodeProjectDir = undefined;
+      sessionEntry.claudeCodeAgent = undefined;
+      sessionEntry.claudeCodeModel = undefined;
+      sessionEntry.claudeCodeResponsePrefix = undefined;
+      sessionEntry.codexMode = false;
+      sessionEntry.codexProjectDir = undefined;
+      sessionEntry.codexAgent = undefined;
+      sessionEntry.codexModel = undefined;
+      sessionEntry.codexResponsePrefix = undefined;
       if (sessionKey && sessionStore && storePath) {
         sessionEntry.updatedAt = Date.now();
         sessionStore[sessionKey] = sessionEntry;
@@ -416,13 +450,14 @@ export async function handleOpencodeCommandDirect(params: {
         });
       }
     }
-    return { text: "🚪 Exited opencode mode. Messages will now go to the normal OpenClaw agent." };
+    return { text: "🚪 Exited coding mode. Messages will now go to the normal OpenClaw agent." };
   }
 
   if (parsed.action === "switch") {
-    if (!sessionEntry?.opencodeMode) {
+    const currentMode = sessionEntry?.opencodeMode ? "opencode" : sessionEntry?.claudeCodeMode ? "claude" : sessionEntry?.codexMode ? "codex" : null;
+    if (!currentMode || !sessionEntry) {
       return {
-        text: "❌ Not in opencode mode. Use `!oc [project_dir]` to enter opencode mode first.",
+        text: "❌ Not in coding mode. Use `!code [project_dir]` to enter coding mode first.",
       };
     }
     sessionEntry.opencodeAgent = parsed.value || DEFAULT_OPENCODE_AGENT;
@@ -433,13 +468,14 @@ export async function handleOpencodeCommandDirect(params: {
         store[sessionKey] = sessionEntry;
       });
     }
-    return { text: `🤖 Opencode agent set to: ${sessionEntry.opencodeAgent}` };
+    return { text: `🤖 Agent set to: ${sessionEntry.opencodeAgent}` };
   }
 
   if (parsed.action === "model") {
-    if (!sessionEntry?.opencodeMode) {
+    const currentMode = sessionEntry?.opencodeMode ? "opencode" : sessionEntry?.claudeCodeMode ? "claude" : sessionEntry?.codexMode ? "codex" : null;
+    if (!currentMode || !sessionEntry) {
       return {
-        text: "❌ Not in opencode mode. Use `!oc [project_dir]` to enter opencode mode first.",
+        text: "❌ Not in opencode mode. Use `!code [project_dir]` to enter opencode mode first.",
       };
     }
     if (!parsed.value) {
@@ -491,7 +527,7 @@ export async function handleOpencodeCommandDirect(params: {
         `Project: ${projectDir}\n` +
         `Agent: ${sessionEntry?.opencodeAgent || DEFAULT_OPENCODE_AGENT}\n` +
         `Model: ${sessionEntry?.opencodeModel || "default"}\n\n` +
-        "All messages will now be forwarded to opencode CLI. Use !oc exit to leave.",
+        "All messages will now be forwarded to opencode CLI. Use !code exit to leave.",
     };
   }
 
