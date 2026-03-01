@@ -104,6 +104,7 @@ export type SlackMonitorContext = {
     topic?: string;
     purpose?: string;
   }>;
+  clearChannelCache: (channelId?: string) => void;
   resolveUserName: (userId: string) => Promise<{ name?: string }>;
   setSlackThreadStatus: (params: {
     channelId: string;
@@ -160,6 +161,13 @@ export function createSlackMonitorContext(params: {
       purpose?: string;
     }
   >();
+
+  const clearChannelCache = (channelId?: string) => {
+    if (channelId) {
+      channelCache.delete(channelId);
+    }
+  };
+
   const userCache = new Map<string, { name?: string }>();
   const seenMessages = createDedupeCache({ ttlMs: 60_000, maxSize: 500 });
 
@@ -416,6 +424,7 @@ export function createSlackMonitorContext(params: {
     resolveSlackSystemEventSessionKey,
     isChannelAllowed,
     resolveChannelName,
+    clearChannelCache,
     resolveUserName,
     setSlackThreadStatus,
   };

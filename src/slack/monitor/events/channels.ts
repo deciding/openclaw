@@ -108,6 +108,7 @@ export function registerSlackChannelEvents(params: { ctx: SlackMonitorContext })
               );
             }
           }
+          ctx.clearChannelCache(channelId);
         } catch (err) {
           ctx.runtime.log?.(
             warn(`[slack] Failed to update channel label on rename: ${String(err)}`),
