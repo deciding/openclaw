@@ -819,7 +819,7 @@ export async function runClaudeCodeCommand(params: {
   const repoName = getRepoName(params.projectDir);
   const responsePrefix = `[claude:${repoName}|${params.agent || "build"}]`;
 
-  const args = ["-c", "-p", "--output-format", "stream-json"];
+  const args = ["-c", "-p", "--verbose", "--output-format", "stream-json"];
 
   if (params.agent) {
     args.push("--agent", params.agent);
@@ -861,7 +861,7 @@ export async function runClaudeCodeCommandStreaming(params: {
 }): Promise<{ error?: string }> {
   const claudePath = await findClaudeCodeBinary();
 
-  const args = ["-c", "-p", "--output-format", "stream-json"];
+  const args = ["-c", "-p", "--verbose", "--output-format", "stream-json"];
 
   if (params.agent) {
     args.push("--agent", params.agent);
