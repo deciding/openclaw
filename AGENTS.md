@@ -122,16 +122,19 @@
 **NEVER use `git add -A`** - it stages ALL files including unintended changes.
 
 **Safe staging practices:**
+
 1. Always check status first: `git status`
 2. Review changes: `git diff`
 3. Stage specific files only:
+
    ```bash
    # Good - stage specific files
    git add src/auto-reply/reply/commands-opencode.ts
-   
+
    # Or stage specific paths
    git add src/auto-reply/reply/
    ```
+
 4. Alternative: use `git add -u` (only staged modified tracked files)
 5. If you accidentally stage too much, unstaging is safe:
    ```bash

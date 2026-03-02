@@ -1,19 +1,19 @@
 import { execFile } from "node:child_process";
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { existsSync, readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
 import { WebClient } from "@slack/web-api";
+import { loadConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import { updateSessionStore } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
 import { runCommandWithTimeout } from "../../process/exec.js";
+import { resolveSlackAccount } from "../../slack/accounts.js";
 import type { ReplyPayload } from "../types.js";
 import type { CommandHandler } from "./commands-types.js";
-import { loadConfig } from "../../config/config.js";
-import { resolveSlackAccount } from "../../slack/accounts.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -30,10 +30,7 @@ export interface AutoLevelResult {
   totalAccepted: number;
 }
 
-export function calculateAutoLevel(params: {
-  projectDir: string;
-  mode: string;
-}): AutoLevelResult {
+export function calculateAutoLevel(params: { projectDir: string; mode: string }): AutoLevelResult {
   const { projectDir, mode } = params;
 
   const handclawDir = path.join(projectDir, ".handclaw");
@@ -288,7 +285,9 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
   }
 
   if (!params.command.isAuthorizedSender) {
-    logVerbose(`Ignoring !code from unauthorized sender: ${params.command.senderId || "<unknown>"}`);
+    logVerbose(
+      `Ignoring !code from unauthorized sender: ${params.command.senderId || "<unknown>"}`,
+    );
     return { shouldContinue: false };
   }
 
@@ -324,7 +323,13 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
   }
 
   if (parsed.action === "switch") {
-    const currentMode = sessionEntry?.opencodeMode ? "opencode" : sessionEntry?.claudeCodeMode ? "claude" : sessionEntry?.codexMode ? "codex" : null;
+    const currentMode = sessionEntry?.opencodeMode
+      ? "opencode"
+      : sessionEntry?.claudeCodeMode
+        ? "claude"
+        : sessionEntry?.codexMode
+          ? "codex"
+          : null;
     if (!currentMode || !sessionEntry) {
       return {
         shouldContinue: false,
@@ -347,12 +352,20 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
     };
   }
 
-if (parsed.action === "model") {
-    const currentMode = sessionEntry?.opencodeMode ? "opencode" : sessionEntry?.claudeCodeMode ? "claude" : sessionEntry?.codexMode ? "codex" : null;
+  if (parsed.action === "model") {
+    const currentMode = sessionEntry?.opencodeMode
+      ? "opencode"
+      : sessionEntry?.claudeCodeMode
+        ? "claude"
+        : sessionEntry?.codexMode
+          ? "codex"
+          : null;
     if (!currentMode || !sessionEntry) {
       return {
         shouldContinue: false,
-        reply: { text: "❌ Not in coding mode. Use `!code [project_dir]` to enter coding mode first." },
+        reply: {
+          text: "❌ Not in coding mode. Use `!code [project_dir]` to enter coding mode first.",
+        },
       };
     }
     if (!parsed.value) {
@@ -545,10 +558,28 @@ export async function handleOpencodeCommandDirect(params: {
   const parsed = parseOpencodeCommand(commandBody);
 
   if (!parsed.action) {
-    const currentMode = sessionEntry?.opencodeMode ? "opencode" : sessionEntry?.claudeCodeMode ? "claude" : sessionEntry?.codexMode ? "codex" : null;
-    const currentProject = sessionEntry?.opencodeProjectDir || sessionEntry?.claudeCodeProjectDir || sessionEntry?.codexProjectDir || "none";
-    const currentAgent = sessionEntry?.opencodeAgent || sessionEntry?.claudeCodeAgent || sessionEntry?.codexAgent || "plan/build";
-    const currentModel = sessionEntry?.opencodeModel || sessionEntry?.claudeCodeModel || sessionEntry?.codexModel || "default";
+    const currentMode = sessionEntry?.opencodeMode
+      ? "opencode"
+      : sessionEntry?.claudeCodeMode
+        ? "claude"
+        : sessionEntry?.codexMode
+          ? "codex"
+          : null;
+    const currentProject =
+      sessionEntry?.opencodeProjectDir ||
+      sessionEntry?.claudeCodeProjectDir ||
+      sessionEntry?.codexProjectDir ||
+      "none";
+    const currentAgent =
+      sessionEntry?.opencodeAgent ||
+      sessionEntry?.claudeCodeAgent ||
+      sessionEntry?.codexAgent ||
+      "plan/build";
+    const currentModel =
+      sessionEntry?.opencodeModel ||
+      sessionEntry?.claudeCodeModel ||
+      sessionEntry?.codexModel ||
+      "default";
 
     return {
       text:
@@ -597,7 +628,13 @@ export async function handleOpencodeCommandDirect(params: {
   }
 
   if (parsed.action === "switch") {
-    const currentMode = sessionEntry?.opencodeMode ? "opencode" : sessionEntry?.claudeCodeMode ? "claude" : sessionEntry?.codexMode ? "codex" : null;
+    const currentMode = sessionEntry?.opencodeMode
+      ? "opencode"
+      : sessionEntry?.claudeCodeMode
+        ? "claude"
+        : sessionEntry?.codexMode
+          ? "codex"
+          : null;
     if (!currentMode || !sessionEntry) {
       return {
         text: "❌ Not in coding mode. Use `!code [project_dir]` to enter coding mode first.",
@@ -615,7 +652,13 @@ export async function handleOpencodeCommandDirect(params: {
   }
 
   if (parsed.action === "model") {
-    const currentMode = sessionEntry?.opencodeMode ? "opencode" : sessionEntry?.claudeCodeMode ? "claude" : sessionEntry?.codexMode ? "codex" : null;
+    const currentMode = sessionEntry?.opencodeMode
+      ? "opencode"
+      : sessionEntry?.claudeCodeMode
+        ? "claude"
+        : sessionEntry?.codexMode
+          ? "codex"
+          : null;
     if (!currentMode || !sessionEntry) {
       return {
         text: "❌ Not in opencode mode. Use `!code [project_dir]` to enter opencode mode first.",
@@ -941,11 +984,14 @@ export async function runCodexCommandStreaming(params: {
     child.stdout?.on("data", (data) => {
       const chunk = data.toString();
       stdout += chunk;
-      params.onChunk(chunk);
     });
 
+    // Codex streams progress to stderr, stdout only gets final message
+    // So we stream from stderr for real-time progress
     child.stderr?.on("data", (data) => {
-      stderr += data.toString();
+      const chunk = data.toString();
+      stderr += chunk;
+      params.onChunk(chunk);
     });
 
     child.on("error", (err) => {
@@ -956,6 +1002,10 @@ export async function runCodexCommandStreaming(params: {
 
     child.on("close", (code) => {
       clearTimeout(timeout);
+      // Output final stdout message (the actual result)
+      if (stdout) {
+        params.onChunk(stdout);
+      }
       if (code !== 0 && stderr) {
         params.onChunk(`\n⚠️ ${stderr}`);
         resolve({ error: stderr });

@@ -1,3 +1,4 @@
+import path from "node:path";
 import {
   resolveAgentDir,
   resolveAgentWorkspaceDir,
@@ -10,7 +11,6 @@ import { DEFAULT_AGENT_WORKSPACE_DIR, ensureAgentWorkspace } from "../../agents/
 import { resolveChannelModelOverride } from "../../channels/model-overrides.js";
 import { type OpenClawConfig, loadConfig } from "../../config/config.js";
 import { updateSessionStore } from "../../config/sessions.js";
-import path from "node:path";
 import { applyLinkUnderstanding } from "../../link-understanding/apply.js";
 import { applyMediaUnderstanding } from "../../media-understanding/apply.js";
 import { defaultRuntime } from "../../runtime.js";
@@ -20,7 +20,15 @@ import { resolveCommandAuthorization } from "../command-auth.js";
 import type { MsgContext } from "../templating.js";
 import { SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
-import { runOpencodeCommand, runOpencodeCommandStreaming, runClaudeCodeCommand, runClaudeCodeCommandStreaming, runCodexCommand, runCodexCommandStreaming, validateProjectDir } from "./commands-opencode.js";
+import {
+  runOpencodeCommand,
+  runOpencodeCommandStreaming,
+  runClaudeCodeCommand,
+  runClaudeCodeCommandStreaming,
+  runCodexCommand,
+  runCodexCommandStreaming,
+  validateProjectDir,
+} from "./commands-opencode.js";
 import { resolveDefaultModel } from "./directive-handling.js";
 import { resolveReplyDirectives } from "./get-reply-directives.js";
 import { handleInlineActions } from "./get-reply-inline-actions.js";
@@ -59,16 +67,21 @@ async function recordUserInstruction(params: {
     const lineCount = content.split("\n").filter((l: string) => l.trim()).length;
 
     if (lineCount > 500) {
-      console.log(`[USER_FEEDBACK] Line count: ${lineCount}, triggering summarization (> 500 lines)`);
+      console.log(
+        `[USER_FEEDBACK] Line count: ${lineCount}, triggering summarization (> 500 lines)`,
+      );
       await summarizeUserInstructions({
         projectDir,
         mode,
         instructionsFilePath: filePath,
       });
 
-      const { calculateAutoLevel, getSlackChannelName, renameSlackChannel } = await import("./commands-opencode.js");
+      const { calculateAutoLevel, getSlackChannelName, renameSlackChannel } =
+        await import("./commands-opencode.js");
       const result = calculateAutoLevel({ projectDir, mode });
-      console.log(`[USER_FEEDBACK] Auto level result: level=${result.level}, ratio=${result.ratio}, percentage=${result.percentage}%, requests=${result.totalRequests}, accepted=${result.totalAccepted}`);
+      console.log(
+        `[USER_FEEDBACK] Auto level result: level=${result.level}, ratio=${result.ratio}, percentage=${result.percentage}%, requests=${result.totalRequests}, accepted=${result.totalAccepted}`,
+      );
 
       const fromMatch = sessionEntry?.origin?.from?.match(/slack:channel:([^:]+)/i);
       const channelId = fromMatch?.[1];
@@ -81,7 +94,9 @@ async function recordUserInstruction(params: {
           const modeMatch = currentName.match(/^(?:l[0-4]-)?(opencode|claude|codex)[-:](.+)$/i);
           if (modeMatch && modeMatch[1] === mode) {
             const newName = `${result.level}-${currentName}`;
-            console.log(`[USER_FEEDBACK] Rename check - current: ${currentName}, new: ${newName}, shouldRename: ${newName !== currentName}`);
+            console.log(
+              `[USER_FEEDBACK] Rename check - current: ${currentName}, new: ${newName}, shouldRename: ${newName !== currentName}`,
+            );
             if (newName !== currentName) {
               await renameSlackChannel({ channelId, newName });
             } else {
@@ -112,7 +127,9 @@ async function summarizeUserInstructions(params: {
   const { writeFile } = await import("node:fs/promises");
 
   try {
-    const content = existsSync(instructionsFilePath) ? readFileSync(instructionsFilePath, "utf-8") : "";
+    const content = existsSync(instructionsFilePath)
+      ? readFileSync(instructionsFilePath, "utf-8")
+      : "";
     const lines = content.split("\n");
     const recentLines = lines.slice(-600);
     const recentContent = recentLines.join("\n");
@@ -203,7 +220,9 @@ async function updateUserFeedback(params: {
   let existingCodesAccepted = 0;
 
   try {
-    const existingContent = existsSync(filePath) ? await readFile(filePath, "utf-8") : "(file does not exist)";
+    const existingContent = existsSync(filePath)
+      ? await readFile(filePath, "utf-8")
+      : "(file does not exist)";
     console.log(`[USER_FEEDBACK] Feedback BEFORE update:\n${existingContent}`);
 
     if (existsSync(filePath)) {
@@ -227,10 +246,12 @@ last_updated: ${timestamp}
 
     await mkdir(handclawDir, { recursive: true });
     await writeFile(filePath, feedbackContent);
-    
+
     const afterContent = await readFile(filePath, "utf-8");
     console.log(`[USER_FEEDBACK] Feedback AFTER update:\n${afterContent}`);
-    console.log(`[USER_FEEDBACK] Update summary: existing=${existingCodingRequests}+${newCodingRequests}=${totalCodingRequests}, accepted=${existingCodesAccepted}+${newCodesAccepted}=${totalCodesAccepted}`);
+    console.log(
+      `[USER_FEEDBACK] Update summary: existing=${existingCodingRequests}+${newCodingRequests}=${totalCodingRequests}, accepted=${existingCodesAccepted}+${newCodesAccepted}=${totalCodesAccepted}`,
+    );
   } catch (err) {
     console.log("[USER_FEEDBACK] Failed to update feedback:", err);
   }
@@ -378,9 +399,17 @@ export async function getReplyFromConfig(
   // Check channel name for auto-enter coding agent mode (e.g., #opencode-myrepo, #claude-myrepo, #codex-myrepo)
   // Also supports level prefix: #l1-codex-myrepo, #l2-opencode-myrepo, etc.
   // Use GroupSubject FIRST (fresh from Slack API), then fall back to session origin
-  const channelLabel = finalized.GroupSubject ?? finalized.GroupChannel ?? sessionEntry?.origin?.label;
+  const channelLabel =
+    finalized.GroupSubject ?? finalized.GroupChannel ?? sessionEntry?.origin?.label;
   console.log("[DEBUG] Channel label:", channelLabel);
-  console.log("[DEBUG] Source: GroupSubject:", finalized.GroupSubject, "| GroupChannel:", finalized.GroupChannel, "| origin.label:", sessionEntry?.origin?.label);
+  console.log(
+    "[DEBUG] Source: GroupSubject:",
+    finalized.GroupSubject,
+    "| GroupChannel:",
+    finalized.GroupChannel,
+    "| origin.label:",
+    sessionEntry?.origin?.label,
+  );
   const channelNameMatch = channelLabel?.match(/^#?(?:l[0-4]-)?(opencode|claude|codex)[-:](.+)$/i);
   console.log("[DEBUG] Channel name match:", channelNameMatch);
 
@@ -431,28 +460,49 @@ export async function getReplyFromConfig(
     }
     console.log("[DEBUG] Project dir:", projectDir);
 
-// Check if mode is changing (e.g., codex → opencode)
-// Use OLD mode's project directory to detect the change
-    const previousMode = sessionEntry?.codexMode ? "codex" : sessionEntry?.claudeCodeMode ? "claude" : sessionEntry?.opencodeMode ? "opencode" : null;
-    console.log("[DEBUG] Session flags - opencodeMode:", sessionEntry?.opencodeMode, "| claudeCodeMode:", sessionEntry?.claudeCodeMode, "| codexMode:", sessionEntry?.codexMode);
-    const previousProjectDir = previousMode === "codex"
-      ? sessionEntry?.codexProjectDir
-      : previousMode === "claude"
-        ? sessionEntry?.claudeCodeProjectDir
-        : previousMode === "opencode"
-          ? sessionEntry?.opencodeProjectDir
+    // Check if mode is changing (e.g., codex → opencode)
+    // Use OLD mode's project directory to detect the change
+    const previousMode = sessionEntry?.codexMode
+      ? "codex"
+      : sessionEntry?.claudeCodeMode
+        ? "claude"
+        : sessionEntry?.opencodeMode
+          ? "opencode"
           : null;
+    console.log(
+      "[DEBUG] Session flags - opencodeMode:",
+      sessionEntry?.opencodeMode,
+      "| claudeCodeMode:",
+      sessionEntry?.claudeCodeMode,
+      "| codexMode:",
+      sessionEntry?.codexMode,
+    );
+    const previousProjectDir =
+      previousMode === "codex"
+        ? sessionEntry?.codexProjectDir
+        : previousMode === "claude"
+          ? sessionEntry?.claudeCodeProjectDir
+          : previousMode === "opencode"
+            ? sessionEntry?.opencodeProjectDir
+            : null;
     const modeChanged = previousMode && previousMode !== modeLower && previousProjectDir;
-    console.log("[MODE] Previous mode:", previousMode, "| Current mode:", modeLower, "| Project dir:", previousProjectDir);
+    console.log(
+      "[MODE] Previous mode:",
+      previousMode,
+      "| Current mode:",
+      modeLower,
+      "| Project dir:",
+      previousProjectDir,
+    );
     console.log("[MODE] Migration needed:", modeChanged ? "YES" : "NO");
     let migrationMessage = "";
 
     // Run migration if mode changed
     if (modeChanged && previousMode && previousMode !== modeLower) {
       typing.cleanup();
-      
+
       console.log("[MIGRATION] Starting:", previousMode, "→", modeLower);
-      
+
       const migrationFileName = `migration_from_${previousMode}.md`;
       const migrationPath = path.join(projectDir, ".handclaw", migrationFileName);
       console.log("[MIGRATION] Migration file:", migrationPath);
@@ -563,7 +613,11 @@ Now generate the summary for continuing with ${modeLower}:`;
               if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
                 lastUpdate = now;
                 const displayText = fullOutput.slice(-3000);
-                await editSlackMessage(channelId!, thinkingMsg.messageId, `${responsePrefix}\n${displayText}`);
+                await editSlackMessage(
+                  channelId!,
+                  thinkingMsg.messageId,
+                  `${responsePrefix}\n${displayText}`,
+                );
               }
             },
           });
@@ -571,13 +625,22 @@ Now generate the summary for continuing with ${modeLower}:`;
         };
 
         if (previousMode === "codex") {
-          console.log("[MIGRATION] Running Codex plan command with:", { projectDir: oldProjectDir, agent: "plan" });
+          console.log("[MIGRATION] Running Codex plan command with:", {
+            projectDir: oldProjectDir,
+            agent: "plan",
+          });
           await runStreaming(runCodexCommandStreaming);
         } else if (previousMode === "claude") {
-          console.log("[MIGRATION] Running Claude Code plan command with:", { projectDir: oldProjectDir, agent: "plan" });
+          console.log("[MIGRATION] Running Claude Code plan command with:", {
+            projectDir: oldProjectDir,
+            agent: "plan",
+          });
           await runStreaming(runClaudeCodeCommandStreaming);
         } else if (previousMode === "opencode") {
-          console.log("[MIGRATION] Running OpenCode plan command with:", { projectDir: oldProjectDir, agent: "plan" });
+          console.log("[MIGRATION] Running OpenCode plan command with:", {
+            projectDir: oldProjectDir,
+            agent: "plan",
+          });
           await runStreaming(runOpencodeCommandStreaming);
         }
 
@@ -585,7 +648,10 @@ Now generate the summary for continuing with ${modeLower}:`;
         await editSlackMessage(channelId, thinkingMsg.messageId, `${responsePrefix}\n${finalText}`);
       } else {
         if (previousMode === "codex") {
-          console.log("[MIGRATION] Running Codex plan command with:", { projectDir: oldProjectDir, agent: "plan" });
+          console.log("[MIGRATION] Running Codex plan command with:", {
+            projectDir: oldProjectDir,
+            agent: "plan",
+          });
           const result = await runCodexCommand({
             message: migrationPrompt,
             projectDir: oldProjectDir,
@@ -594,7 +660,10 @@ Now generate the summary for continuing with ${modeLower}:`;
           summaryText = result.text;
           summaryError = result.error || "";
         } else if (previousMode === "claude") {
-          console.log("[MIGRATION] Running Claude Code plan command with:", { projectDir: oldProjectDir, agent: "plan" });
+          console.log("[MIGRATION] Running Claude Code plan command with:", {
+            projectDir: oldProjectDir,
+            agent: "plan",
+          });
           const result = await runClaudeCodeCommand({
             message: migrationPrompt,
             projectDir: oldProjectDir,
@@ -603,7 +672,10 @@ Now generate the summary for continuing with ${modeLower}:`;
           summaryText = result.text;
           summaryError = result.error || "";
         } else if (previousMode === "opencode") {
-          console.log("[MIGRATION] Running OpenCode plan command with:", { projectDir: oldProjectDir, agent: "plan" });
+          console.log("[MIGRATION] Running OpenCode plan command with:", {
+            projectDir: oldProjectDir,
+            agent: "plan",
+          });
           const result = await runOpencodeCommand({
             message: migrationPrompt,
             projectDir: oldProjectDir,
@@ -630,7 +702,7 @@ Now generate the summary for continuing with ${modeLower}:`;
 
     // Enter/switch mode if needed
     // Use previousProjectDir if modeChanged (migration case), otherwise use projectDir
-    const effectiveProjectDir = modeChanged ? (previousProjectDir || projectDir) : projectDir;
+    const effectiveProjectDir = modeChanged ? previousProjectDir || projectDir : projectDir;
     if (effectiveProjectDir && (needsSwitch || !currentMode || modeChanged)) {
       typing.cleanup();
 
@@ -692,7 +764,8 @@ Now generate the summary for continuing with ${modeLower}:`;
   // Check for !code command prefix (direct detection, before normal agent processing)
   // This works for all channels including Slack
   const trimmedBody = triggerBodyNormalized?.trim() ?? "";
-  const isOpencodeCommand = /^!code(\s|$)/i.test(trimmedBody) ||
+  const isOpencodeCommand =
+    /^!code(\s|$)/i.test(trimmedBody) ||
     /^!plan\s/i.test(trimmedBody) ||
     /^!build\s/i.test(trimmedBody);
 
@@ -759,7 +832,8 @@ Now generate the summary for continuing with ${modeLower}:`;
         return { text: responseText };
       }
     } else {
-      const responseText = "⚠️ Not in a coding CLI channel. Use this command in #opencode-, #claude-, or #codex- channels.";
+      const responseText =
+        "⚠️ Not in a coding CLI channel. Use this command in #opencode-, #claude-, or #codex- channels.";
       if (
         finalized.Provider === "slack" ||
         finalized.Surface === "slack" ||
@@ -956,7 +1030,8 @@ Now generate the summary for continuing with ${modeLower}:`;
         finalized.Surface === "slack" ||
         finalized.OriginatingChannel === "slack";
 
-      const { runClaudeCodeCommand, runClaudeCodeCommandStreaming } = await import("./commands-opencode.js");
+      const { runClaudeCodeCommand, runClaudeCodeCommandStreaming } =
+        await import("./commands-opencode.js");
 
       if (isSlack) {
         let channelId: string | null = null;
@@ -1048,7 +1123,7 @@ Now generate the summary for continuing with ${modeLower}:`;
         return { text: "", channelData: { responsePrefix } };
       }
 
-const result = await runClaudeCodeCommand({
+      const result = await runClaudeCodeCommand({
         message: triggerBodyNormalized,
         projectDir: sessionEntry.claudeCodeProjectDir,
         agent: sessionEntry.claudeCodeAgent || "build",

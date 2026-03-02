@@ -94,8 +94,7 @@ export function registerSlackChannelEvents(params: { ctx: SlackMonitorContext })
           const store = loadSessionStore(storePath, { skipCache: true });
           const entry = store[sessionKey];
           if (entry) {
-            const hadMode =
-              entry.opencodeMode || entry.claudeCodeMode || entry.codexMode;
+            const hadMode = entry.opencodeMode || entry.claudeCodeMode || entry.codexMode;
             if (hadMode) {
               if (entry.origin) {
                 entry.origin.label = `#${channelName}`;
@@ -104,7 +103,9 @@ export function registerSlackChannelEvents(params: { ctx: SlackMonitorContext })
               store[sessionKey] = entry;
               await updateSessionStore(storePath, () => store);
               ctx.runtime.log?.(
-                warn(`[slack] Updated channel label for session ${sessionKey} to ${channelName} for migration on next message`),
+                warn(
+                  `[slack] Updated channel label for session ${sessionKey} to ${channelName} for migration on next message`,
+                ),
               );
             }
           }
