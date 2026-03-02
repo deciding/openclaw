@@ -35,8 +35,9 @@ async function recordUserInstruction(params: {
   projectDir: string;
   mode: string;
   instruction: string;
+  sessionEntry?: { origin?: { from?: string } };
 }): Promise<void> {
-  const { projectDir, mode, instruction } = params;
+  const { projectDir, mode, instruction, sessionEntry } = params;
   if (!projectDir || !mode || !instruction) {
     return;
   }
@@ -64,6 +65,25 @@ async function recordUserInstruction(params: {
         mode,
         instructionsFilePath: filePath,
       });
+
+      const { calculateAutoLevel, getSlackChannelName, renameSlackChannel } = await import("./commands-opencode.js");
+      const result = calculateAutoLevel({ projectDir, mode });
+
+      const fromMatch = sessionEntry?.origin?.from?.match(/slack:channel:([^:]+)/i);
+      const channelId = fromMatch?.[1];
+
+      if (channelId) {
+        const currentName = await getSlackChannelName(channelId);
+        if (currentName) {
+          const modeMatch = currentName.match(/^(?:l[0-4]-)?(opencode|claude|codex)[-:](.+)$/i);
+          if (modeMatch && modeMatch[1] === mode) {
+            const newName = `${result.level}-${currentName}`;
+            if (newName !== currentName) {
+              await renameSlackChannel({ channelId, newName });
+            }
+          }
+        }
+      }
     }
   } catch (err) {
     console.log("[DEBUG] Failed to record user instruction:", err);
@@ -338,11 +358,12 @@ export async function getReplyFromConfig(
   } = sessionState;
 
   // Check channel name for auto-enter coding agent mode (e.g., #opencode-myrepo, #claude-myrepo, #codex-myrepo)
+  // Also supports level prefix: #l1-codex-myrepo, #l2-opencode-myrepo, etc.
   // Use GroupSubject FIRST (fresh from Slack API), then fall back to session origin
   const channelLabel = finalized.GroupSubject ?? finalized.GroupChannel ?? sessionEntry?.origin?.label;
   console.log("[DEBUG] Channel label:", channelLabel);
   console.log("[DEBUG] Source: GroupSubject:", finalized.GroupSubject, "| GroupChannel:", finalized.GroupChannel, "| origin.label:", sessionEntry?.origin?.label);
-  const channelNameMatch = channelLabel?.match(/^#?(opencode|claude|codex)[-:](.+)$/i);
+  const channelNameMatch = channelLabel?.match(/^#?(?:l[0-4]-)?(opencode|claude|codex)[-:](.+)$/i);
   console.log("[DEBUG] Channel name match:", channelNameMatch);
 
   if (channelNameMatch) {
@@ -781,6 +802,7 @@ Now generate the summary for continuing with ${modeLower}:`;
         projectDir: sessionEntry.opencodeProjectDir,
         mode: "opencode",
         instruction: triggerBodyNormalized,
+        sessionEntry,
       });
       typing.cleanup();
       const responsePrefix = sessionEntry.opencodeResponsePrefix;
@@ -906,6 +928,7 @@ Now generate the summary for continuing with ${modeLower}:`;
         projectDir: sessionEntry.claudeCodeProjectDir,
         mode: "claude",
         instruction: triggerBodyNormalized,
+        sessionEntry,
       });
       typing.cleanup();
       const responsePrefix = sessionEntry.claudeCodeResponsePrefix;
@@ -1028,6 +1051,7 @@ const result = await runClaudeCodeCommand({
         projectDir: sessionEntry.codexProjectDir,
         mode: "codex",
         instruction: triggerBodyNormalized,
+        sessionEntry,
       });
       typing.cleanup();
       const responsePrefix = sessionEntry.codexResponsePrefix;

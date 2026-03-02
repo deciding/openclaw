@@ -5,12 +5,15 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
+import { WebClient } from "@slack/web-api";
 import type { SessionEntry } from "../../config/sessions.js";
 import { updateSessionStore } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
 import { runCommandWithTimeout } from "../../process/exec.js";
 import type { ReplyPayload } from "../types.js";
 import type { CommandHandler } from "./commands-types.js";
+import { loadConfig } from "../../config/config.js";
+import { resolveSlackAccount } from "../../slack/accounts.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -104,6 +107,52 @@ last_updated: ${new Date().toISOString()}
     totalRequests,
     totalAccepted,
   };
+}
+
+export async function getSlackChannelName(channelId: string): Promise<string | null> {
+  try {
+    const cfg = loadConfig();
+    const account = resolveSlackAccount({ cfg, accountId: undefined });
+    const token = account?.botToken;
+
+    if (!token) {
+      return null;
+    }
+
+    const client = new WebClient(token);
+    const result = await client.conversations.info({ channel: channelId });
+    return result.channel?.name ?? null;
+  } catch (err) {
+    console.log("[USER_FEEDBACK] Failed to get channel name:", err);
+    return null;
+  }
+}
+
+export async function renameSlackChannel(params: {
+  channelId: string;
+  newName: string;
+}): Promise<void> {
+  const { channelId, newName } = params;
+
+  try {
+    const cfg = loadConfig();
+    const account = resolveSlackAccount({ cfg, accountId: undefined });
+    const token = account?.botToken;
+
+    if (!token) {
+      console.log("[USER_FEEDBACK] No bot token found for channel rename");
+      return;
+    }
+
+    const client = new WebClient(token);
+    await client.conversations.rename({
+      channel: channelId,
+      name: newName,
+    });
+    console.log(`[USER_FEEDBACK] Renamed channel to ${newName}`);
+  } catch (err) {
+    console.log("[USER_FEEDBACK] Failed to rename channel:", err);
+  }
 }
 
 async function findOpencodeBinary(): Promise<string> {
