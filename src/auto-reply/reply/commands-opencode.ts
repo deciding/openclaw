@@ -524,16 +524,6 @@ export async function runOpencodeCommandStreaming(params: {
       params.onChunk(chunk);
     });
 
-    child.stderr?.on("data", (data) => {
-      const chunk = data.toString();
-      stderr += chunk;
-      console.log("[OPENCODE STDERR]", chunk.substring(0, 200));
-    });
-
-    child.stderr?.on("data", (data) => {
-      stderr += data.toString();
-    });
-
     child.on("error", (err) => {
       clearTimeout(timeout);
       params.onChunk(`\n❌ Error: ${err.message}`);
