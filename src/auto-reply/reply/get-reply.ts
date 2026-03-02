@@ -696,6 +696,21 @@ Now generate the summary for continuing with ${modeLower}:`;
         console.log("[DEBUG] Failed to write migration file:", writeErr);
       }
 
+      // Copy CLAUDE.md <-> AGENTS.md during migration
+      const { copyFile, access } = await import("node:fs/promises");
+      const oldFileName = previousMode === "claude" ? "CLAUDE.md" : "AGENTS.md";
+      const newFileName = modeLower === "claude" ? "CLAUDE.md" : "AGENTS.md";
+      const oldFilePath = path.join(previousProjectDir, oldFileName);
+      const newFilePath = path.join(projectDir, newFileName);
+
+      try {
+        await access(oldFilePath);
+        await copyFile(oldFilePath, newFilePath);
+        console.log("[MIGRATION] Copied", oldFileName, "→", newFileName, "in", projectDir);
+      } catch (copyErr) {
+        console.log("[MIGRATION] Skipped", oldFileName, "copy:", copyErr);
+      }
+
       migrationMessage = `\n\n📦 Migrated from ${previousMode} → ${modeLower}. Summary saved to \`${migrationPath}\``;
       console.log("[DEBUG] Migration completed for:", previousMode, "→", modeLower);
     }
