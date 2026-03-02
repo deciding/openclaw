@@ -3,15 +3,15 @@
   "version": "2026.2.24",
   "description": "Multi-channel AI gateway with extensible messaging integrations",
   "keywords": [],
-  "homepage": "https://github.com/handclaw/handclaw#readme",
+  "homepage": "https://github.com/openclaw/openclaw#readme",
   "bugs": {
-    "url": "https://github.com/handclaw/handclaw/issues"
+    "url": "https://github.com/openclaw/openclaw/issues"
   },
   "license": "MIT",
   "author": "",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/handclaw/handclaw.git"
+    "url": "git+https://github.com/openclaw/openclaw.git"
   },
   "bin": {
     "handclaw": "handclaw.mjs"
@@ -24,6 +24,7 @@
     "CHANGELOG.md",
     "LICENSE",
     "handclaw.mjs",
+    "openclaw.mjs",
     "README-header.png",
     "README.md",
     "assets/",
