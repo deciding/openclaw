@@ -1032,6 +1032,7 @@ export async function runCodexCommandStreaming(params: {
     child.stdout?.on("data", (data) => {
       const chunk = data.toString();
       stdout += chunk;
+      params.onChunk(chunk);
     });
 
     // Codex streams progress to stderr, stdout only gets final message
