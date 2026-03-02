@@ -989,7 +989,7 @@ Now generate the summary for continuing with ${modeLower}:`;
           const result = await runClaudeCodeCommand({
             message: triggerBodyNormalized,
             projectDir: sessionEntry.claudeCodeProjectDir,
-            agent: sessionEntry.claudeCodeAgent,
+            agent: sessionEntry.claudeCodeAgent || "build",
             model: sessionEntry.claudeCodeModel,
           });
           if (result.error) {
@@ -1011,7 +1011,7 @@ Now generate the summary for continuing with ${modeLower}:`;
           const result = await runClaudeCodeCommand({
             message: triggerBodyNormalized,
             projectDir: sessionEntry.claudeCodeProjectDir,
-            agent: sessionEntry.claudeCodeAgent,
+            agent: sessionEntry.claudeCodeAgent || "build",
             model: sessionEntry.claudeCodeModel,
           });
           if (result.error) {
@@ -1025,7 +1025,7 @@ Now generate the summary for continuing with ${modeLower}:`;
         await runClaudeCodeCommandStreaming({
           message: triggerBodyNormalized,
           projectDir: sessionEntry.claudeCodeProjectDir,
-          agent: sessionEntry.claudeCodeAgent,
+          agent: sessionEntry.claudeCodeAgent || "build",
           model: sessionEntry.claudeCodeModel,
           onChunk: async (chunk) => {
             fullOutput += chunk;
@@ -1051,7 +1051,7 @@ Now generate the summary for continuing with ${modeLower}:`;
 const result = await runClaudeCodeCommand({
         message: triggerBodyNormalized,
         projectDir: sessionEntry.claudeCodeProjectDir,
-        agent: sessionEntry.claudeCodeAgent,
+        agent: sessionEntry.claudeCodeAgent || "build",
         model: sessionEntry.claudeCodeModel,
       });
       if (result.error) {
