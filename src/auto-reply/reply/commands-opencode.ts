@@ -520,31 +520,14 @@ export async function runOpencodeCommandStreaming(params: {
     child.stdout?.on("data", (data) => {
       const chunk = data.toString();
       stdout += chunk;
+      console.log("[OPENCODE STDOUT]", chunk.substring(0, 200));
+      params.onChunk(chunk);
+    });
 
-      const lines = chunk.split("\n");
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const parsed = JSON.parse(line);
-          if (parsed.type === "assistant" && parsed.message?.content) {
-            for (const block of parsed.message.content) {
-              if (block.type === "text" && block.text) {
-                params.onChunk(block.text);
-              } else if (block.type === "thinking" && block.thinking) {
-                params.onChunk(`\n🤔 ${block.thinking}\n`);
-              }
-            }
-          } else if (parsed.type === "result") {
-            if (parsed.result) {
-              params.onChunk(`\n${parsed.result}`);
-            }
-          }
-        } catch {
-          if (line.includes("error") || line.includes("Error")) {
-            params.onChunk(line);
-          }
-        }
-      }
+    child.stderr?.on("data", (data) => {
+      const chunk = data.toString();
+      stderr += chunk;
+      console.log("[OPENCODE STDERR]", chunk.substring(0, 200));
     });
 
     child.stderr?.on("data", (data) => {

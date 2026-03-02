@@ -973,6 +973,7 @@ Now generate the summary for continuing with ${modeLower}:`;
           `${responsePrefix} 🤔 Thinking...`,
           threadOpts,
         );
+        console.log("[OPENCODE] Thinking message ID:", thinkingMsg?.messageId, "channelId:", channelId);
         if (!thinkingMsg.messageId) {
           const result = await runOpencodeCommand({
             message: triggerBodyNormalized,
@@ -994,6 +995,7 @@ Now generate the summary for continuing with ${modeLower}:`;
           agent: sessionEntry.opencodeAgent || "plan/build",
           model: sessionEntry.opencodeModel,
           onChunk: async (chunk) => {
+            console.log("[OPENCODE CHUNK]", chunk.substring(0, 200));
             fullOutput += chunk;
             const now = Date.now();
             if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
