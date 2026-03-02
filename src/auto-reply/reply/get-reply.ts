@@ -1112,7 +1112,7 @@ const result = await runClaudeCodeCommand({
           const result = await runCodexCommand({
             message: triggerBodyNormalized,
             projectDir: sessionEntry.codexProjectDir,
-            agent: sessionEntry.codexAgent,
+            agent: sessionEntry.codexAgent || "build",
             model: sessionEntry.codexModel,
           });
           if (result.error) {
@@ -1134,7 +1134,7 @@ const result = await runClaudeCodeCommand({
           const result = await runCodexCommand({
             message: triggerBodyNormalized,
             projectDir: sessionEntry.codexProjectDir,
-            agent: sessionEntry.codexAgent,
+            agent: sessionEntry.codexAgent || "build",
             model: sessionEntry.codexModel,
           });
           if (result.error) {
@@ -1148,7 +1148,7 @@ const result = await runClaudeCodeCommand({
         await runCodexCommandStreaming({
           message: triggerBodyNormalized,
           projectDir: sessionEntry.codexProjectDir,
-          agent: sessionEntry.codexAgent,
+          agent: sessionEntry.codexAgent || "build",
           model: sessionEntry.codexModel,
           onChunk: async (chunk) => {
             fullOutput += chunk;
@@ -1174,7 +1174,7 @@ const result = await runClaudeCodeCommand({
       const result = await runCodexCommand({
         message: triggerBodyNormalized,
         projectDir: sessionEntry.codexProjectDir,
-        agent: sessionEntry.codexAgent,
+        agent: sessionEntry.codexAgent || "build",
         model: sessionEntry.codexModel,
       });
       if (result.error) {
