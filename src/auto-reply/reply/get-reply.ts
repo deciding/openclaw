@@ -614,7 +614,7 @@ Now generate the summary for continuing with ${modeLower}:`;
                 lastUpdate = now;
                 const displayText = fullOutput.slice(-3000);
                 await editSlackMessage(
-                  channelId!,
+                  channelId,
                   thinkingMsg.messageId,
                   `${responsePrefix}\n${displayText}`,
                 );

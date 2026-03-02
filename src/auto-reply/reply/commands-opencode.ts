@@ -520,7 +520,31 @@ export async function runOpencodeCommandStreaming(params: {
     child.stdout?.on("data", (data) => {
       const chunk = data.toString();
       stdout += chunk;
-      params.onChunk(chunk);
+
+      const lines = chunk.split("\n");
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.type === "assistant" && parsed.message?.content) {
+            for (const block of parsed.message.content) {
+              if (block.type === "text" && block.text) {
+                params.onChunk(block.text);
+              } else if (block.type === "thinking" && block.thinking) {
+                params.onChunk(`\n🤔 ${block.thinking}\n`);
+              }
+            }
+          } else if (parsed.type === "result") {
+            if (parsed.result) {
+              params.onChunk(`\n${parsed.result}`);
+            }
+          }
+        } catch {
+          if (line.includes("error") || line.includes("Error")) {
+            params.onChunk(line);
+          }
+        }
+      }
     });
 
     child.stderr?.on("data", (data) => {
@@ -795,7 +819,7 @@ export async function runClaudeCodeCommand(params: {
   const repoName = getRepoName(params.projectDir);
   const responsePrefix = `[claude:${repoName}|${params.agent || "build"}]`;
 
-  const args = ["-c", "-p"];
+  const args = ["-c", "-p", "--output-format", "stream"];
 
   if (params.agent) {
     args.push("--agent", params.agent);
@@ -837,7 +861,7 @@ export async function runClaudeCodeCommandStreaming(params: {
 }): Promise<{ error?: string }> {
   const claudePath = await findClaudeCodeBinary();
 
-  const args = ["-c", "-p"];
+  const args = ["-c", "-p", "--output-format", "stream"];
 
   if (params.agent) {
     args.push("--agent", params.agent);
@@ -866,7 +890,31 @@ export async function runClaudeCodeCommandStreaming(params: {
     child.stdout?.on("data", (data) => {
       const chunk = data.toString();
       stdout += chunk;
-      params.onChunk(chunk);
+
+      const lines = chunk.split("\n");
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.type === "assistant" && parsed.message?.content) {
+            for (const block of parsed.message.content) {
+              if (block.type === "text" && block.text) {
+                params.onChunk(block.text);
+              } else if (block.type === "thinking" && block.thinking) {
+                params.onChunk(`\n🤔 ${block.thinking}\n`);
+              }
+            }
+          } else if (parsed.type === "result") {
+            if (parsed.result) {
+              params.onChunk(`\n${parsed.result}`);
+            }
+          }
+        } catch {
+          if (line.includes("error") || line.includes("Error")) {
+            params.onChunk(line);
+          }
+        }
+      }
     });
 
     child.stderr?.on("data", (data) => {
