@@ -59,7 +59,7 @@ async function recordUserInstruction(params: {
     const lineCount = content.split("\n").filter((l: string) => l.trim()).length;
 
     if (lineCount > 500) {
-      console.log(`[USER_FEEDBACK] Instructions file exceeds 500 lines (${lineCount}), triggering summarization`);
+      console.log(`[USER_FEEDBACK] Line count: ${lineCount}, triggering summarization (> 500 lines)`);
       await summarizeUserInstructions({
         projectDir,
         mode,
@@ -68,21 +68,33 @@ async function recordUserInstruction(params: {
 
       const { calculateAutoLevel, getSlackChannelName, renameSlackChannel } = await import("./commands-opencode.js");
       const result = calculateAutoLevel({ projectDir, mode });
+      console.log(`[USER_FEEDBACK] Auto level result: level=${result.level}, ratio=${result.ratio}, percentage=${result.percentage}%, requests=${result.totalRequests}, accepted=${result.totalAccepted}`);
 
       const fromMatch = sessionEntry?.origin?.from?.match(/slack:channel:([^:]+)/i);
       const channelId = fromMatch?.[1];
 
       if (channelId) {
+        console.log(`[USER_FEEDBACK] Channel ID: ${channelId}`);
         const currentName = await getSlackChannelName(channelId);
+        console.log(`[USER_FEEDBACK] Current channel name: ${currentName}`);
         if (currentName) {
           const modeMatch = currentName.match(/^(?:l[0-4]-)?(opencode|claude|codex)[-:](.+)$/i);
           if (modeMatch && modeMatch[1] === mode) {
             const newName = `${result.level}-${currentName}`;
+            console.log(`[USER_FEEDBACK] Rename check - current: ${currentName}, new: ${newName}, shouldRename: ${newName !== currentName}`);
             if (newName !== currentName) {
               await renameSlackChannel({ channelId, newName });
+            } else {
+              console.log(`[USER_FEEDBACK] Skip rename - name unchanged`);
             }
+          } else {
+            console.log(`[USER_FEEDBACK] Skip rename - mode mismatch or no match: ${modeMatch}`);
           }
+        } else {
+          console.log(`[USER_FEEDBACK] Skip rename - could not get current channel name`);
         }
+      } else {
+        console.log(`[USER_FEEDBACK] Skip rename - no channel ID in sessionEntry`);
       }
     }
   } catch (err) {
@@ -191,6 +203,9 @@ async function updateUserFeedback(params: {
   let existingCodesAccepted = 0;
 
   try {
+    const existingContent = existsSync(filePath) ? await readFile(filePath, "utf-8") : "(file does not exist)";
+    console.log(`[USER_FEEDBACK] Feedback BEFORE update:\n${existingContent}`);
+
     if (existsSync(filePath)) {
       const content = await readFile(filePath, "utf-8");
       const codingMatch = content.match(/coding_requests:\s*(\d+)/i);
@@ -212,7 +227,10 @@ last_updated: ${timestamp}
 
     await mkdir(handclawDir, { recursive: true });
     await writeFile(filePath, feedbackContent);
-    console.log(`[USER_FEEDBACK] Updated feedback: ${totalCodingRequests} requests, ${totalCodesAccepted} accepted`);
+    
+    const afterContent = await readFile(filePath, "utf-8");
+    console.log(`[USER_FEEDBACK] Feedback AFTER update:\n${afterContent}`);
+    console.log(`[USER_FEEDBACK] Update summary: existing=${existingCodingRequests}+${newCodingRequests}=${totalCodingRequests}, accepted=${existingCodesAccepted}+${newCodesAccepted}=${totalCodesAccepted}`);
   } catch (err) {
     console.log("[USER_FEEDBACK] Failed to update feedback:", err);
   }

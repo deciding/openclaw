@@ -116,14 +116,17 @@ export async function getSlackChannelName(channelId: string): Promise<string | n
     const token = account?.botToken;
 
     if (!token) {
+      console.log(`[USER_FEEDBACK] No bot token to get channel name for ${channelId}`);
       return null;
     }
 
     const client = new WebClient(token);
     const result = await client.conversations.info({ channel: channelId });
-    return result.channel?.name ?? null;
+    const name = result.channel?.name ?? null;
+    console.log(`[USER_FEEDBACK] Got channel name for ${channelId}: ${name}`);
+    return name;
   } catch (err) {
-    console.log("[USER_FEEDBACK] Failed to get channel name:", err);
+    console.log(`[USER_FEEDBACK] Failed to get channel name for ${channelId}:`, err);
     return null;
   }
 }
@@ -149,9 +152,9 @@ export async function renameSlackChannel(params: {
       channel: channelId,
       name: newName,
     });
-    console.log(`[USER_FEEDBACK] Renamed channel to ${newName}`);
+    console.log(`[USER_FEEDBACK] Rename SUCCESS - channel ${channelId} renamed to ${newName}`);
   } catch (err) {
-    console.log("[USER_FEEDBACK] Failed to rename channel:", err);
+    console.log(`[USER_FEEDBACK] Rename FAILED - channel ${channelId}:`, err);
   }
 }
 
