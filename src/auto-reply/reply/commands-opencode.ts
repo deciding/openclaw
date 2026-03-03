@@ -714,12 +714,16 @@ export async function handleOpencodeCommandDirect(params: {
     };
   }
 
-  // Handle !plan <message> - set agent to plan and execute
+  // Handle !plan <message> - temporarily set agent to plan, execute, then restore
   if (parsed.action === "plan") {
     if (!sessionEntry?.opencodeMode || !sessionEntry?.opencodeProjectDir) {
       return { text: "❌ Not in opencode mode. Use `!code [proj_dir]` to enter opencode mode first." };
     }
     const projectName = getRepoName(sessionEntry.opencodeProjectDir);
+    // Save original agent to restore after execution
+    const originalAgent = sessionEntry.opencodeAgent || "build";
+    const originalPrefix = sessionEntry.opencodeResponsePrefix;
+    // Temporarily set to plan
     sessionEntry.opencodeAgent = "plan";
     sessionEntry.opencodeResponsePrefix = `[opencode:${projectName}|plan]`;
     if (sessionKey && sessionStore && storePath) {
@@ -742,15 +746,29 @@ export async function handleOpencodeCommandDirect(params: {
       },
     });
     const resultText = fullOutput.join("").slice(-3000);
+    // Restore original agent after execution
+    sessionEntry.opencodeAgent = originalAgent;
+    sessionEntry.opencodeResponsePrefix = originalPrefix;
+    if (sessionKey && sessionStore && storePath) {
+      sessionEntry.updatedAt = Date.now();
+      sessionStore[sessionKey] = sessionEntry;
+      await updateSessionStore(storePath, (store) => {
+        store[sessionKey] = sessionEntry;
+      });
+    }
     return { text: `[opencode:${projectName}|plan]\n${resultText}` };
   }
 
-  // Handle !build <message> - set agent to build and execute
+  // Handle !build <message> - temporarily set agent to build, execute, then restore
   if (parsed.action === "build") {
     if (!sessionEntry?.opencodeMode || !sessionEntry?.opencodeProjectDir) {
       return { text: "❌ Not in opencode mode. Use `!code [proj_dir]` to enter opencode mode first." };
     }
     const projectName = getRepoName(sessionEntry.opencodeProjectDir);
+    // Save original agent to restore after execution
+    const originalAgent = sessionEntry.opencodeAgent || "build";
+    const originalPrefix = sessionEntry.opencodeResponsePrefix;
+    // Temporarily set to build
     sessionEntry.opencodeAgent = "build";
     sessionEntry.opencodeResponsePrefix = `[opencode:${projectName}|build]`;
     if (sessionKey && sessionStore && storePath) {
@@ -773,6 +791,16 @@ export async function handleOpencodeCommandDirect(params: {
       },
     });
     const resultText = fullOutput.join("").slice(-3000);
+    // Restore original agent after execution
+    sessionEntry.opencodeAgent = originalAgent;
+    sessionEntry.opencodeResponsePrefix = originalPrefix;
+    if (sessionKey && sessionStore && storePath) {
+      sessionEntry.updatedAt = Date.now();
+      sessionStore[sessionKey] = sessionEntry;
+      await updateSessionStore(storePath, (store) => {
+        store[sessionKey] = sessionEntry;
+      });
+    }
     return { text: `[opencode:${projectName}|build]\n${resultText}` };
   }
 
