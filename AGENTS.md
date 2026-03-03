@@ -283,3 +283,49 @@
   - `node --import tsx scripts/release-check.ts`
   - `pnpm release:check`
   - `pnpm test:install:smoke` or `OPENCLAW_INSTALL_SMOKE_SKIP_NONROOT=1 pnpm test:install:smoke` for non-root smoke path.
+
+## Adding New Models
+
+To add new models for users to choose from, add entries to the model catalog files in `src/agents/`:
+
+| Provider | File | Catalog Variable |
+|----------|------|------------------|
+| synthetic | `src/agents/synthetic-models.ts` | `SYNTHETIC_MODEL_CATALOG` |
+| together | `src/agents/together-models.ts` | `TOGETHER_MODEL_CATALOG` |
+| doubao/volcengine | `src/agents/doubao-models.ts` | `DOUBAO_MODEL_CATALOG`, `DOUBAO_CODING_MODEL_CATALOG` |
+| byteplus | `src/agents/byteplus-models.ts` | `BYTEPLUS_MODEL_CATALOG`, `BYTEPLUS_CODING_MODEL_CATALOG` |
+| venice | `src/agents/venice-models.ts` | `VENICE_MODEL_CATALOG` |
+| huggingface | `src/agents/huggingface-models.ts` | `HUGGINGFACE_MODEL_CATALOG` |
+
+### Model Entry Format
+
+```typescript
+{
+  id: "hf:deepseek-ai/DeepSeek-V3-0324",  // Unique model ID (provider/model-id)
+  name: "DeepSeek V3 0324",                 // Display name for UI
+  reasoning: false,                         // true if model supports thinking
+  input: ["text"],                          // ["text"] or ["text", "image"] for vision
+  contextWindow: 128000,                    // Max context tokens
+  maxTokens: 8192,                          // Max output tokens
+}
+```
+
+### Example: Adding to Synthetic Provider
+
+Edit `src/agents/synthetic-models.ts`, add to `SYNTHETIC_MODEL_CATALOG`:
+
+```typescript
+export const SYNTHETIC_MODEL_CATALOG = [
+  // ... existing models ...
+  {
+    id: "hf:your-model-id",
+    name: "Your Model Name",
+    reasoning: true,
+    input: ["text"],
+    contextWindow: 100000,
+    maxTokens: 8192,
+  },
+];
+```
+
+Model will be available to users after gateway restart.
