@@ -714,6 +714,68 @@ export async function handleOpencodeCommandDirect(params: {
     };
   }
 
+  // Handle !plan <message> - set agent to plan and execute
+  if (parsed.action === "plan") {
+    if (!sessionEntry?.opencodeMode || !sessionEntry?.opencodeProjectDir) {
+      return { text: "❌ Not in opencode mode. Use `!code [proj_dir]` to enter opencode mode first." };
+    }
+    const projectName = getRepoName(sessionEntry.opencodeProjectDir);
+    sessionEntry.opencodeAgent = "plan";
+    sessionEntry.opencodeResponsePrefix = `[opencode:${projectName}|plan]`;
+    if (sessionKey && sessionStore && storePath) {
+      sessionEntry.updatedAt = Date.now();
+      sessionStore[sessionKey] = sessionEntry;
+      await updateSessionStore(storePath, (store) => {
+        store[sessionKey] = sessionEntry;
+      });
+    }
+    // Execute the message with plan agent
+    const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
+    const fullOutput: string[] = [];
+    await runOpencodeCommandStreaming({
+      message: parsed.value,
+      projectDir: sessionEntry.opencodeProjectDir,
+      agent: "plan",
+      model: sessionEntry.opencodeModel,
+      onChunk: (chunk) => {
+        fullOutput.push(chunk);
+      },
+    });
+    const resultText = fullOutput.join("").slice(-3000);
+    return { text: `[opencode:${projectName}|plan]\n${resultText}` };
+  }
+
+  // Handle !build <message> - set agent to build and execute
+  if (parsed.action === "build") {
+    if (!sessionEntry?.opencodeMode || !sessionEntry?.opencodeProjectDir) {
+      return { text: "❌ Not in opencode mode. Use `!code [proj_dir]` to enter opencode mode first." };
+    }
+    const projectName = getRepoName(sessionEntry.opencodeProjectDir);
+    sessionEntry.opencodeAgent = "build";
+    sessionEntry.opencodeResponsePrefix = `[opencode:${projectName}|build]`;
+    if (sessionKey && sessionStore && storePath) {
+      sessionEntry.updatedAt = Date.now();
+      sessionStore[sessionKey] = sessionEntry;
+      await updateSessionStore(storePath, (store) => {
+        store[sessionKey] = sessionEntry;
+      });
+    }
+    // Execute the message with build agent
+    const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
+    const fullOutput: string[] = [];
+    await runOpencodeCommandStreaming({
+      message: parsed.value,
+      projectDir: sessionEntry.opencodeProjectDir,
+      agent: "build",
+      model: sessionEntry.opencodeModel,
+      onChunk: (chunk) => {
+        fullOutput.push(chunk);
+      },
+    });
+    const resultText = fullOutput.join("").slice(-3000);
+    return { text: `[opencode:${projectName}|build]\n${resultText}` };
+  }
+
   return null;
 }
 
