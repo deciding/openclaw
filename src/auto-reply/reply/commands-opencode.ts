@@ -549,8 +549,10 @@ export async function handleOpencodeCommandDirect(params: {
   sessionKey?: string;
   storePath?: string;
   channelLabel?: string;
+  sendMessageSlack?: (target: string, text: string, opts?: object) => Promise<{ messageId?: string }>;
+  editSlackMessage?: (channelId: string, messageId: string, text: string) => Promise<void>;
 }): Promise<ReplyPayload | null> {
-  const { commandBody, sessionEntry, sessionStore, sessionKey, storePath, channelLabel } = params;
+  const { commandBody, sessionEntry, sessionStore, sessionKey, storePath, channelLabel, sendMessageSlack, editSlackMessage } = params;
 
   const parsed = parseOpencodeCommand(commandBody);
 
@@ -720,12 +722,76 @@ export async function handleOpencodeCommandDirect(params: {
       return { text: "❌ Not in opencode mode. Use `!code [proj_dir]` to enter opencode mode first." };
     }
     const projectName = getRepoName(sessionEntry.opencodeProjectDir);
+    const targetAgent = "plan";
+    const responsePrefix = `[opencode:${projectName}|${targetAgent}]`;
+
     // Save original agent to restore after execution
     const originalAgent = sessionEntry.opencodeAgent || "build";
     const originalPrefix = sessionEntry.opencodeResponsePrefix;
-    // Temporarily set to plan
-    sessionEntry.opencodeAgent = "plan";
-    sessionEntry.opencodeResponsePrefix = `[opencode:${projectName}|plan]`;
+
+    // If Slack streaming functions available, use streaming
+    if (sendMessageSlack && editSlackMessage && sessionEntry.origin?.from) {
+      const channelMatch = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
+      const channelId = channelMatch ? channelMatch[1].toUpperCase() : null;
+
+      if (channelId) {
+        // Send initial thinking message
+        const thinkingMsg = await sendMessageSlack(`channel:${channelId}`, `${responsePrefix} 🤔 Thinking...`, {});
+        if (thinkingMsg.messageId) {
+          // Temporarily set to plan
+          sessionEntry.opencodeAgent = targetAgent;
+          sessionEntry.opencodeResponsePrefix = responsePrefix;
+          if (sessionKey && sessionStore && storePath) {
+            sessionEntry.updatedAt = Date.now();
+            sessionStore[sessionKey] = sessionEntry;
+            await updateSessionStore(storePath, (store) => {
+              store[sessionKey] = sessionEntry;
+            });
+          }
+
+          // Execute with streaming
+          const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
+          let fullOutput = "";
+          let lastUpdate = Date.now();
+
+          await runOpencodeCommandStreaming({
+            message: parsed.value,
+            projectDir: sessionEntry.opencodeProjectDir,
+            agent: targetAgent,
+            model: sessionEntry.opencodeModel,
+            onChunk: async (chunk) => {
+              fullOutput += chunk;
+              const now = Date.now();
+              if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
+                lastUpdate = now;
+                const displayText = fullOutput.slice(-3000);
+                await editSlackMessage(channelId, thinkingMsg.messageId!, `${responsePrefix}\n${displayText}`);
+              }
+            },
+          });
+
+          // Final update
+          const finalText = fullOutput.slice(-3000);
+          await editSlackMessage(channelId, thinkingMsg.messageId!, `${responsePrefix}\n${finalText}`);
+
+          // Restore original agent
+          sessionEntry.opencodeAgent = originalAgent;
+          sessionEntry.opencodeResponsePrefix = originalPrefix;
+          if (sessionKey && sessionStore && storePath) {
+            sessionEntry.updatedAt = Date.now();
+            sessionStore[sessionKey] = sessionEntry;
+            await updateSessionStore(storePath, (store) => {
+              store[sessionKey] = sessionEntry;
+            });
+          }
+          return { text: "" };
+        }
+      }
+    }
+
+    // Fallback: non-streaming execution
+    sessionEntry.opencodeAgent = targetAgent;
+    sessionEntry.opencodeResponsePrefix = responsePrefix;
     if (sessionKey && sessionStore && storePath) {
       sessionEntry.updatedAt = Date.now();
       sessionStore[sessionKey] = sessionEntry;
@@ -733,20 +799,21 @@ export async function handleOpencodeCommandDirect(params: {
         store[sessionKey] = sessionEntry;
       });
     }
-    // Execute the message with plan agent
+
     const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
     const fullOutput: string[] = [];
     await runOpencodeCommandStreaming({
       message: parsed.value,
       projectDir: sessionEntry.opencodeProjectDir,
-      agent: "plan",
+      agent: targetAgent,
       model: sessionEntry.opencodeModel,
       onChunk: (chunk) => {
         fullOutput.push(chunk);
       },
     });
     const resultText = fullOutput.join("").slice(-3000);
-    // Restore original agent after execution
+
+    // Restore original agent
     sessionEntry.opencodeAgent = originalAgent;
     sessionEntry.opencodeResponsePrefix = originalPrefix;
     if (sessionKey && sessionStore && storePath) {
@@ -756,7 +823,7 @@ export async function handleOpencodeCommandDirect(params: {
         store[sessionKey] = sessionEntry;
       });
     }
-    return { text: `[opencode:${projectName}|plan]\n${resultText}` };
+    return { text: `${responsePrefix}\n${resultText}` };
   }
 
   // Handle !build <message> - temporarily set agent to build, execute, then restore
@@ -765,12 +832,76 @@ export async function handleOpencodeCommandDirect(params: {
       return { text: "❌ Not in opencode mode. Use `!code [proj_dir]` to enter opencode mode first." };
     }
     const projectName = getRepoName(sessionEntry.opencodeProjectDir);
+    const targetAgent = "build";
+    const responsePrefix = `[opencode:${projectName}|${targetAgent}]`;
+
     // Save original agent to restore after execution
     const originalAgent = sessionEntry.opencodeAgent || "build";
     const originalPrefix = sessionEntry.opencodeResponsePrefix;
-    // Temporarily set to build
-    sessionEntry.opencodeAgent = "build";
-    sessionEntry.opencodeResponsePrefix = `[opencode:${projectName}|build]`;
+
+    // If Slack streaming functions available, use streaming
+    if (sendMessageSlack && editSlackMessage && sessionEntry.origin?.from) {
+      const channelMatch = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
+      const channelId = channelMatch ? channelMatch[1].toUpperCase() : null;
+
+      if (channelId) {
+        // Send initial thinking message
+        const thinkingMsg = await sendMessageSlack(`channel:${channelId}`, `${responsePrefix} 🤔 Thinking...`, {});
+        if (thinkingMsg.messageId) {
+          // Temporarily set to build
+          sessionEntry.opencodeAgent = targetAgent;
+          sessionEntry.opencodeResponsePrefix = responsePrefix;
+          if (sessionKey && sessionStore && storePath) {
+            sessionEntry.updatedAt = Date.now();
+            sessionStore[sessionKey] = sessionEntry;
+            await updateSessionStore(storePath, (store) => {
+              store[sessionKey] = sessionEntry;
+            });
+          }
+
+          // Execute with streaming
+          const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
+          let fullOutput = "";
+          let lastUpdate = Date.now();
+
+          await runOpencodeCommandStreaming({
+            message: parsed.value,
+            projectDir: sessionEntry.opencodeProjectDir,
+            agent: targetAgent,
+            model: sessionEntry.opencodeModel,
+            onChunk: async (chunk) => {
+              fullOutput += chunk;
+              const now = Date.now();
+              if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
+                lastUpdate = now;
+                const displayText = fullOutput.slice(-3000);
+                await editSlackMessage(channelId, thinkingMsg.messageId!, `${responsePrefix}\n${displayText}`);
+              }
+            },
+          });
+
+          // Final update
+          const finalText = fullOutput.slice(-3000);
+          await editSlackMessage(channelId, thinkingMsg.messageId!, `${responsePrefix}\n${finalText}`);
+
+          // Restore original agent
+          sessionEntry.opencodeAgent = originalAgent;
+          sessionEntry.opencodeResponsePrefix = originalPrefix;
+          if (sessionKey && sessionStore && storePath) {
+            sessionEntry.updatedAt = Date.now();
+            sessionStore[sessionKey] = sessionEntry;
+            await updateSessionStore(storePath, (store) => {
+              store[sessionKey] = sessionEntry;
+            });
+          }
+          return { text: "" };
+        }
+      }
+    }
+
+    // Fallback: non-streaming execution
+    sessionEntry.opencodeAgent = targetAgent;
+    sessionEntry.opencodeResponsePrefix = responsePrefix;
     if (sessionKey && sessionStore && storePath) {
       sessionEntry.updatedAt = Date.now();
       sessionStore[sessionKey] = sessionEntry;
@@ -778,20 +909,21 @@ export async function handleOpencodeCommandDirect(params: {
         store[sessionKey] = sessionEntry;
       });
     }
-    // Execute the message with build agent
+
     const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
     const fullOutput: string[] = [];
     await runOpencodeCommandStreaming({
       message: parsed.value,
       projectDir: sessionEntry.opencodeProjectDir,
-      agent: "build",
+      agent: targetAgent,
       model: sessionEntry.opencodeModel,
       onChunk: (chunk) => {
         fullOutput.push(chunk);
       },
     });
     const resultText = fullOutput.join("").slice(-3000);
-    // Restore original agent after execution
+
+    // Restore original agent
     sessionEntry.opencodeAgent = originalAgent;
     sessionEntry.opencodeResponsePrefix = originalPrefix;
     if (sessionKey && sessionStore && storePath) {
@@ -801,7 +933,7 @@ export async function handleOpencodeCommandDirect(params: {
         store[sessionKey] = sessionEntry;
       });
     }
-    return { text: `[opencode:${projectName}|build]\n${resultText}` };
+    return { text: `${responsePrefix}\n${resultText}` };
   }
 
   return null;
