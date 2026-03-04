@@ -716,13 +716,15 @@ export async function handleOpencodeCommandDirect(params: {
     };
   }
 
-  // Handle !plan <message> - temporarily set agent to plan, execute, then restore
-  if (parsed.action === "plan") {
+  // Helper function to execute with temporary agent (reduces duplication)
+  async function executeWithTempAgent(
+    targetAgent: string,
+    message: string,
+  ): Promise<ReplyPayload> {
     if (!sessionEntry?.opencodeMode || !sessionEntry?.opencodeProjectDir) {
-      return { text: "❌ Not in opencode mode. Use `!code [proj_dir]` to enter opencode mode first." };
+      return { text: `❌ Not in opencode mode. Use \`!code [proj_dir]\` to enter opencode mode first.` };
     }
     const projectName = getRepoName(sessionEntry.opencodeProjectDir);
-    const targetAgent = "plan";
     const responsePrefix = `[opencode:${projectName}|${targetAgent}]`;
 
     // Save original agent to restore after execution
@@ -738,7 +740,7 @@ export async function handleOpencodeCommandDirect(params: {
         // Send initial thinking message
         const thinkingMsg = await sendMessageSlack(`channel:${channelId}`, `${responsePrefix} 🤔 Thinking...`, {});
         if (thinkingMsg.messageId) {
-          // Temporarily set to plan
+          // Temporarily set to target agent
           sessionEntry.opencodeAgent = targetAgent;
           sessionEntry.opencodeResponsePrefix = responsePrefix;
           if (sessionKey && sessionStore && storePath) {
@@ -755,7 +757,7 @@ export async function handleOpencodeCommandDirect(params: {
           let lastUpdate = Date.now();
 
           await runOpencodeCommandStreaming({
-            message: parsed.value,
+            message,
             projectDir: sessionEntry.opencodeProjectDir,
             agent: targetAgent,
             model: sessionEntry.opencodeModel,
@@ -803,7 +805,7 @@ export async function handleOpencodeCommandDirect(params: {
     const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
     const fullOutput: string[] = [];
     await runOpencodeCommandStreaming({
-      message: parsed.value,
+      message,
       projectDir: sessionEntry.opencodeProjectDir,
       agent: targetAgent,
       model: sessionEntry.opencodeModel,
@@ -826,114 +828,14 @@ export async function handleOpencodeCommandDirect(params: {
     return { text: `${responsePrefix}\n${resultText}` };
   }
 
+  // Handle !plan <message> - temporarily set agent to plan, execute, then restore
+  if (parsed.action === "plan") {
+    return executeWithTempAgent("plan", parsed.value);
+  }
+
   // Handle !build <message> - temporarily set agent to build, execute, then restore
   if (parsed.action === "build") {
-    if (!sessionEntry?.opencodeMode || !sessionEntry?.opencodeProjectDir) {
-      return { text: "❌ Not in opencode mode. Use `!code [proj_dir]` to enter opencode mode first." };
-    }
-    const projectName = getRepoName(sessionEntry.opencodeProjectDir);
-    const targetAgent = "build";
-    const responsePrefix = `[opencode:${projectName}|${targetAgent}]`;
-
-    // Save original agent to restore after execution
-    const originalAgent = sessionEntry.opencodeAgent || "build";
-    const originalPrefix = sessionEntry.opencodeResponsePrefix;
-
-    // If Slack streaming functions available, use streaming
-    if (sendMessageSlack && editSlackMessage && sessionEntry.origin?.from) {
-      const channelMatch = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
-      const channelId = channelMatch ? channelMatch[1].toUpperCase() : null;
-
-      if (channelId) {
-        // Send initial thinking message
-        const thinkingMsg = await sendMessageSlack(`channel:${channelId}`, `${responsePrefix} 🤔 Thinking...`, {});
-        if (thinkingMsg.messageId) {
-          // Temporarily set to build
-          sessionEntry.opencodeAgent = targetAgent;
-          sessionEntry.opencodeResponsePrefix = responsePrefix;
-          if (sessionKey && sessionStore && storePath) {
-            sessionEntry.updatedAt = Date.now();
-            sessionStore[sessionKey] = sessionEntry;
-            await updateSessionStore(storePath, (store) => {
-              store[sessionKey] = sessionEntry;
-            });
-          }
-
-          // Execute with streaming
-          const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
-          let fullOutput = "";
-          let lastUpdate = Date.now();
-
-          await runOpencodeCommandStreaming({
-            message: parsed.value,
-            projectDir: sessionEntry.opencodeProjectDir,
-            agent: targetAgent,
-            model: sessionEntry.opencodeModel,
-            onChunk: async (chunk) => {
-              fullOutput += chunk;
-              const now = Date.now();
-              if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
-                lastUpdate = now;
-                const displayText = fullOutput.slice(-3000);
-                await editSlackMessage(channelId, thinkingMsg.messageId!, `${responsePrefix}\n${displayText}`);
-              }
-            },
-          });
-
-          // Final update
-          const finalText = fullOutput.slice(-3000);
-          await editSlackMessage(channelId, thinkingMsg.messageId!, `${responsePrefix}\n${finalText}`);
-
-          // Restore original agent
-          sessionEntry.opencodeAgent = originalAgent;
-          sessionEntry.opencodeResponsePrefix = originalPrefix;
-          if (sessionKey && sessionStore && storePath) {
-            sessionEntry.updatedAt = Date.now();
-            sessionStore[sessionKey] = sessionEntry;
-            await updateSessionStore(storePath, (store) => {
-              store[sessionKey] = sessionEntry;
-            });
-          }
-          return { text: "" };
-        }
-      }
-    }
-
-    // Fallback: non-streaming execution
-    sessionEntry.opencodeAgent = targetAgent;
-    sessionEntry.opencodeResponsePrefix = responsePrefix;
-    if (sessionKey && sessionStore && storePath) {
-      sessionEntry.updatedAt = Date.now();
-      sessionStore[sessionKey] = sessionEntry;
-      await updateSessionStore(storePath, (store) => {
-        store[sessionKey] = sessionEntry;
-      });
-    }
-
-    const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
-    const fullOutput: string[] = [];
-    await runOpencodeCommandStreaming({
-      message: parsed.value,
-      projectDir: sessionEntry.opencodeProjectDir,
-      agent: targetAgent,
-      model: sessionEntry.opencodeModel,
-      onChunk: (chunk) => {
-        fullOutput.push(chunk);
-      },
-    });
-    const resultText = fullOutput.join("").slice(-3000);
-
-    // Restore original agent
-    sessionEntry.opencodeAgent = originalAgent;
-    sessionEntry.opencodeResponsePrefix = originalPrefix;
-    if (sessionKey && sessionStore && storePath) {
-      sessionEntry.updatedAt = Date.now();
-      sessionStore[sessionKey] = sessionEntry;
-      await updateSessionStore(storePath, (store) => {
-        store[sessionKey] = sessionEntry;
-      });
-    }
-    return { text: `${responsePrefix}\n${resultText}` };
+    return executeWithTempAgent("build", parsed.value);
   }
 
   return null;
