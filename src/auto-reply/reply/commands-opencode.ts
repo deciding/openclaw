@@ -764,7 +764,7 @@ export async function handleOpencodeCommandDirect(params: {
             onChunk: async (chunk) => {
               fullOutput += chunk;
               const now = Date.now();
-              if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
+              if (now - lastUpdate >= 0 || chunk.includes("❌") || chunk.includes("⚠️")) {
                 lastUpdate = now;
                 const displayText = fullOutput.slice(-3000);
                 await editSlackMessage(channelId, thinkingMsg.messageId!, `${responsePrefix}\n${displayText}`);
