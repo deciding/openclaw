@@ -817,7 +817,7 @@ export async function handleOpencodeCommandDirect(params: {
         fullOutput.push(chunk);
       },
     });
-    const resultText = fullOutput.join("").slice(-3000);
+    const resultText = fullOutput.join("");
 
     // Restore original agent
     sessionEntry.opencodeAgent = originalAgent;
