@@ -794,6 +794,8 @@ Now generate the summary for continuing with ${modeLower}:`;
       sessionKey,
       storePath,
       channelLabel: channelLabel ?? undefined,
+      sendMessageSlack,
+      editSlackMessage,
     });
     if (result) {
       return result;
