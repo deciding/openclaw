@@ -640,6 +640,10 @@ export async function handleOpencodeCommandDirect(params: {
       };
     }
     sessionEntry.opencodeAgent = parsed.value || DEFAULT_OPENCODE_AGENT;
+    const repoName = sessionEntry.opencodeProjectDir
+      ? getRepoName(sessionEntry.opencodeProjectDir)
+      : "unknown";
+    sessionEntry.opencodeResponsePrefix = `[opencode:${repoName}|${sessionEntry.opencodeAgent}]`;
     if (sessionKey && sessionStore && storePath) {
       sessionEntry.updatedAt = Date.now();
       sessionStore[sessionKey] = sessionEntry;
