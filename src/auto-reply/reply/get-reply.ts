@@ -78,7 +78,7 @@ async function recordUserInstruction(params: {
 
       const { calculateAutoLevel, getSlackChannelName, renameSlackChannel } =
         await import("./commands-opencode.js");
-      const result = calculateAutoLevel({ projectDir, mode });
+      const result = calculateAutoLevel({ projectDir, mode: "build" });
       console.log(
         `[USER_FEEDBACK] Auto level result: level=${result.level}, ratio=${result.ratio}, percentage=${result.percentage}%, requests=${result.totalRequests}, accepted=${result.totalAccepted}`,
       );
@@ -155,7 +155,7 @@ ${recentContent}`;
       const result = await runOpencodeCommand({
         message: prompt,
         projectDir,
-        agent: "plan",
+        agent: "build",
       });
       resultText = result.text;
       resultError = result.error || "";
@@ -164,7 +164,7 @@ ${recentContent}`;
       const result = await runClaudeCodeCommand({
         message: prompt,
         projectDir,
-        agent: "plan",
+        agent: "build",
       });
       resultText = result.text;
       resultError = result.error || "";
@@ -173,7 +173,7 @@ ${recentContent}`;
       const result = await runCodexCommand({
         message: prompt,
         projectDir,
-        agent: "plan",
+        agent: "build",
       });
       resultText = result.text;
       resultError = result.error || "";
@@ -606,7 +606,7 @@ Now generate the summary for continuing with ${modeLower}:`;
           await streamingFn({
             message: migrationPrompt,
             projectDir: oldProjectDir,
-            agent: "plan",
+            agent: "build",
             onChunk: async (chunk: string) => {
               fullOutput += chunk;
               const now = Date.now();
@@ -627,19 +627,19 @@ Now generate the summary for continuing with ${modeLower}:`;
         if (previousMode === "codex") {
           console.log("[MIGRATION] Running Codex plan command with:", {
             projectDir: oldProjectDir,
-            agent: "plan",
+            agent: "build",
           });
           await runStreaming(runCodexCommandStreaming);
         } else if (previousMode === "claude") {
           console.log("[MIGRATION] Running Claude Code plan command with:", {
             projectDir: oldProjectDir,
-            agent: "plan",
+            agent: "build",
           });
           await runStreaming(runClaudeCodeCommandStreaming);
         } else if (previousMode === "opencode") {
           console.log("[MIGRATION] Running OpenCode plan command with:", {
             projectDir: oldProjectDir,
-            agent: "plan",
+            agent: "build",
           });
           await runStreaming(runOpencodeCommandStreaming);
         }
@@ -650,36 +650,36 @@ Now generate the summary for continuing with ${modeLower}:`;
         if (previousMode === "codex") {
           console.log("[MIGRATION] Running Codex plan command with:", {
             projectDir: oldProjectDir,
-            agent: "plan",
+            agent: "build",
           });
           const result = await runCodexCommand({
             message: migrationPrompt,
             projectDir: oldProjectDir,
-            agent: "plan",
+            agent: "build",
           });
           summaryText = result.text;
           summaryError = result.error || "";
         } else if (previousMode === "claude") {
           console.log("[MIGRATION] Running Claude Code plan command with:", {
             projectDir: oldProjectDir,
-            agent: "plan",
+            agent: "build",
           });
           const result = await runClaudeCodeCommand({
             message: migrationPrompt,
             projectDir: oldProjectDir,
-            agent: "plan",
+            agent: "build",
           });
           summaryText = result.text;
           summaryError = result.error || "";
         } else if (previousMode === "opencode") {
           console.log("[MIGRATION] Running OpenCode plan command with:", {
             projectDir: oldProjectDir,
-            agent: "plan",
+            agent: "build",
           });
           const result = await runOpencodeCommand({
             message: migrationPrompt,
             projectDir: oldProjectDir,
-            agent: "plan",
+            agent: "build",
           });
           summaryText = result.text;
           summaryError = result.error || "";
@@ -824,9 +824,9 @@ Now generate the summary for continuing with ${modeLower}:`;
     }
 
     if (projectDir && mode) {
-      const result = calculateAutoLevel({ projectDir, mode });
+      const result = calculateAutoLevel({ projectDir, mode: "build" });
       const responseText = `📊 Code Acceptance Rate: ${result.percentage}% (${result.totalAccepted}/${result.totalRequests} requests accepted)
-🚀 Autonomous Level: ${result.level}`;
+ 🚀 Autonomous Level: ${result.level}`;
 
       if (
         finalized.Provider === "slack" ||

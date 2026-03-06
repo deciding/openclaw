@@ -31,10 +31,11 @@ export interface AutoLevelResult {
 }
 
 export function calculateAutoLevel(params: { projectDir: string; mode: string }): AutoLevelResult {
-  const { projectDir, mode } = params;
+  const { projectDir } = params;
 
+  const effectiveMode = "build";
   const handclawDir = path.join(projectDir, ".handclaw");
-  const fileName = `USER_FEEDBACK_${mode.toUpperCase()}.md`;
+  const fileName = `USER_FEEDBACK_${effectiveMode.toUpperCase()}.md`;
   const filePath = path.join(handclawDir, fileName);
 
   let totalRequests = 1;
@@ -53,7 +54,7 @@ export function calculateAutoLevel(params: { projectDir: string; mode: string })
   } else {
     try {
       mkdir(handclawDir, { recursive: true });
-      const initContent = `# Code Feedback - ${mode}
+      const initContent = `# Code Feedback - ${effectiveMode}
 
 coding_requests: ${totalRequests}
 codes_accepted: ${totalAccepted}
