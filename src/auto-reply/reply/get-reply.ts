@@ -78,7 +78,7 @@ async function recordUserInstruction(params: {
 
       const { calculateAutoLevel, getSlackChannelName, renameSlackChannel } =
         await import("./commands-opencode.js");
-      const result = calculateAutoLevel({ projectDir, mode: "build" });
+      const result = calculateAutoLevel({ projectDir, mode });
       console.log(
         `[USER_FEEDBACK] Auto level result: level=${result.level}, ratio=${result.ratio}, percentage=${result.percentage}%, requests=${result.totalRequests}, accepted=${result.totalAccepted}`,
       );
@@ -824,7 +824,7 @@ Now generate the summary for continuing with ${modeLower}:`;
     }
 
     if (projectDir && mode) {
-      const result = calculateAutoLevel({ projectDir, mode: "build" });
+      const result = calculateAutoLevel({ projectDir, mode });
       const responseText = `📊 Code Acceptance Rate: ${result.percentage}% (${result.totalAccepted}/${result.totalRequests} requests accepted)
  🚀 Autonomous Level: ${result.level}`;
 
