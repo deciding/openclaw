@@ -759,6 +759,8 @@ export async function handleOpencodeCommandDirect(params: {
           const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
           let fullOutput = "";
           let lastUpdate = Date.now();
+          let lastMessageId = thinkingMsg.messageId;  // Track last message ID to edit
+          let lastMessageLength = 0;
 
           await runOpencodeCommandStreaming({
             message,
@@ -771,14 +773,31 @@ export async function handleOpencodeCommandDirect(params: {
               if (now - lastUpdate >= 0 || chunk.includes("❌") || chunk.includes("⚠️")) {
                 lastUpdate = now;
                 const displayText = fullOutput.slice(-3000);
-                await editSlackMessage(channelId, thinkingMsg.messageId!, `${responsePrefix}\n${displayText}`);
+
+                // If we have space in current message (< 3000 chars), edit it
+                // Otherwise send new threaded message
+                if (lastMessageLength < 3000) {
+                  await editSlackMessage(channelId, lastMessageId!, `${responsePrefix}\n${displayText}`);
+                  lastMessageLength = displayText.length;
+                } else {
+                  // Send new threaded message
+                  const newMsg = await sendMessageSlack(
+                    `channel:${channelId}`,
+                    `${responsePrefix}\n${displayText}`,
+                    { thread_ts: thinkingMsg.messageId }
+                  );
+                  if (newMsg.messageId) {
+                    lastMessageId = newMsg.messageId;
+                    lastMessageLength = displayText.length;
+                  }
+                }
               }
             },
           });
 
           // Final update
           const finalText = fullOutput.slice(-3000);
-          await editSlackMessage(channelId, thinkingMsg.messageId!, `${responsePrefix}\n${finalText}`);
+          await editSlackMessage(channelId, lastMessageId!, `${responsePrefix}\n${finalText}`);
 
           // Restore original agent
           sessionEntry.opencodeAgent = originalAgent;

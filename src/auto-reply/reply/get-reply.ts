@@ -990,6 +990,8 @@ Now generate the summary for continuing with ${modeLower}:`;
         }
 
         let lastUpdate = Date.now();
+        let lastMessageId = thinkingMsg.messageId;  // Track last message ID to edit
+        let lastMessageLength = 0;
 
         await runOpencodeCommandStreaming({
           message: triggerBodyNormalized,
@@ -1003,17 +1005,34 @@ Now generate the summary for continuing with ${modeLower}:`;
             if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
               lastUpdate = now;
               const displayText = fullOutput.slice(-3000);
-              await editSlackMessage(
-                channelId,
-                thinkingMsg.messageId,
-                `${responsePrefix}\n${displayText}`,
-              );
+
+              // If we have space in current message (< 3000 chars), edit it
+              // Otherwise send new threaded message
+              if (lastMessageLength < 3000) {
+                await editSlackMessage(
+                  channelId,
+                  lastMessageId,
+                  `${responsePrefix}\n${displayText}`,
+                );
+                lastMessageLength = displayText.length;
+              } else {
+                // Send new threaded message
+                const newMsg = await sendMessageSlack(
+                  `channel:${channelId}`,
+                  `${responsePrefix}\n${displayText}`,
+                  { threadTs: thinkingMsg.messageId }
+                );
+                if (newMsg.messageId) {
+                  lastMessageId = newMsg.messageId;
+                  lastMessageLength = displayText.length;
+                }
+              }
             }
           },
         });
 
         const finalText = fullOutput.slice(-3000);
-        await editSlackMessage(channelId, thinkingMsg.messageId, `${responsePrefix}\n${finalText}`);
+        await editSlackMessage(channelId, lastMessageId, `${responsePrefix}\n${finalText}`);
 
         return { text: "", channelData: { responsePrefix } };
       }
@@ -1115,6 +1134,8 @@ Now generate the summary for continuing with ${modeLower}:`;
         }
 
         let lastUpdate = Date.now();
+        let lastMessageId = thinkingMsg.messageId;  // Track last message ID to edit
+        let lastMessageLength = 0;
 
         await runClaudeCodeCommandStreaming({
           message: triggerBodyNormalized,
@@ -1127,17 +1148,34 @@ Now generate the summary for continuing with ${modeLower}:`;
             if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
               lastUpdate = now;
               const displayText = fullOutput.slice(-3000);
-              await editSlackMessage(
-                channelId,
-                thinkingMsg.messageId,
-                `${responsePrefix}\n${displayText}`,
-              );
+
+              // If we have space in current message (< 3000 chars), edit it
+              // Otherwise send new threaded message
+              if (lastMessageLength < 3000) {
+                await editSlackMessage(
+                  channelId,
+                  lastMessageId,
+                  `${responsePrefix}\n${displayText}`,
+                );
+                lastMessageLength = displayText.length;
+              } else {
+                // Send new threaded message
+                const newMsg = await sendMessageSlack(
+                  `channel:${channelId}`,
+                  `${responsePrefix}\n${displayText}`,
+                  { threadTs: thinkingMsg.messageId }
+                );
+                if (newMsg.messageId) {
+                  lastMessageId = newMsg.messageId;
+                  lastMessageLength = displayText.length;
+                }
+              }
             }
           },
         });
 
         const finalText = fullOutput.slice(-3000);
-        await editSlackMessage(channelId, thinkingMsg.messageId, `${responsePrefix}\n${finalText}`);
+        await editSlackMessage(channelId, lastMessageId, `${responsePrefix}\n${finalText}`);
 
         return { text: "", channelData: { responsePrefix } };
       }
@@ -1238,6 +1276,8 @@ Now generate the summary for continuing with ${modeLower}:`;
         }
 
         let lastUpdate = Date.now();
+        let lastMessageId = thinkingMsg.messageId;  // Track last message ID to edit
+        let lastMessageLength = 0;
 
         await runCodexCommandStreaming({
           message: triggerBodyNormalized,
@@ -1250,17 +1290,34 @@ Now generate the summary for continuing with ${modeLower}:`;
             if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
               lastUpdate = now;
               const displayText = fullOutput.slice(-3000);
-              await editSlackMessage(
-                channelId,
-                thinkingMsg.messageId,
-                `${responsePrefix}\n${displayText}`,
-              );
+
+              // If we have space in current message (< 3000 chars), edit it
+              // Otherwise send new threaded message
+              if (lastMessageLength < 3000) {
+                await editSlackMessage(
+                  channelId,
+                  lastMessageId,
+                  `${responsePrefix}\n${displayText}`,
+                );
+                lastMessageLength = displayText.length;
+              } else {
+                // Send new threaded message
+                const newMsg = await sendMessageSlack(
+                  `channel:${channelId}`,
+                  `${responsePrefix}\n${displayText}`,
+                  { threadTs: thinkingMsg.messageId }
+                );
+                if (newMsg.messageId) {
+                  lastMessageId = newMsg.messageId;
+                  lastMessageLength = displayText.length;
+                }
+              }
             }
           },
         });
 
         const finalText = fullOutput.slice(-3000);
-        await editSlackMessage(channelId, thinkingMsg.messageId, `${responsePrefix}\n${finalText}`);
+        await editSlackMessage(channelId, lastMessageId, `${responsePrefix}\n${finalText}`);
 
         return { text: "", channelData: { responsePrefix } };
       }
