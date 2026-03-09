@@ -20,8 +20,8 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_OPENCODE_AGENT = "build";
 const OPENCODE_TIMEOUT_MS = 300_000;
 
-type SendMessageSlackFn = (target: string, text: string, opts?: object) => Promise<{ messageId?: string }>;
-type EditSlackMessageFn = (channelId: string, messageId: string, text: string) => Promise<void>;
+type SendMessageFn = (target: string, text: string, opts?: object) => Promise<{ messageId?: string }>;
+type EditMessageFn = (channelId: string, messageId: string, text: string) => Promise<void>;
 type StreamingFn = (params: {
   message: string;
   projectDir: string;
@@ -30,26 +30,28 @@ type StreamingFn = (params: {
   onChunk: (chunk: string) => void | Promise<void>;
 }) => Promise<{ error?: string }>;
 
-export async function streamToSlack(params: {
+export async function streamToIM(params: {
   streamingFn: StreamingFn;
   message: string;
   projectDir: string;
   agent: string;
   model?: string;
-  sendMessageSlack: SendMessageSlackFn;
-  editSlackMessage: EditSlackMessageFn;
+  sendMessage: SendMessageFn;
+  editMessage?: EditMessageFn;
   channelId: string;
   responsePrefix: string;
 }): Promise<{ error?: string }> {
-  const { streamingFn, message, projectDir, agent, model, sendMessageSlack, editSlackMessage, channelId, responsePrefix } = params;
+  const { streamingFn, message, projectDir, agent, model, sendMessage, editMessage, channelId, responsePrefix } = params;
 
-  const thinkingMsg = await sendMessageSlack(`channel:${channelId}`, `${responsePrefix} 🤔 Thinking...`, {});
+  const thinkingMsg = await sendMessage(`channel:${channelId}`, `${responsePrefix} 🤔 Thinking...`, {});
   if (!thinkingMsg.messageId) {
     return { error: "Failed to send initial message" };
   }
 
   let lastMessageId = thinkingMsg.messageId;
   let lastSent = "";
+
+  const canEdit = !!editMessage;
 
   try {
     await streamingFn({
@@ -58,13 +60,20 @@ export async function streamToSlack(params: {
       agent,
       model,
       onChunk: async (chunk: string) => {
-        if (lastSent.length + chunk.length <= 3000) {
-          // Fits in current message - update it
+        if (canEdit && lastSent.length + chunk.length <= 3000) {
+          // Has edit capability and fits - update existing message
           lastSent = lastSent + chunk;
-          await editSlackMessage(channelId, lastMessageId, lastSent);
+          await editMessage!(channelId, lastMessageId, lastSent);
+        } else if (canEdit) {
+          // Has edit but would exceed - send new message
+          const msg = await sendMessage(`channel:${channelId}`, `${responsePrefix}\n${chunk}`, {});
+          if (msg.messageId) {
+            lastMessageId = msg.messageId;
+            lastSent = chunk;
+          }
         } else {
-          // Would exceed 3000 - send chunk as NEW message
-          const msg = await sendMessageSlack(`channel:${channelId}`, chunk, {});
+          // No edit capability - always send new messages
+          const msg = await sendMessage(`channel:${channelId}`, `${responsePrefix}\n${chunk}`, {});
           if (msg.messageId) {
             lastMessageId = msg.messageId;
             lastSent = chunk;
@@ -74,17 +83,19 @@ export async function streamToSlack(params: {
     });
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    await sendMessageSlack(`channel:${channelId}`, `❌ Error: ${errorMsg}`, {});
+    await sendMessage(`channel:${channelId}`, `❌ Error: ${errorMsg}`, {});
     return { error: errorMsg };
   }
 
   // Final update
   if (lastSent) {
-    await editSlackMessage(channelId, lastMessageId, lastSent);
+    if (canEdit) {
+      await editMessage!(channelId, lastMessageId, lastSent);
+    }
   }
 
-  // Send completion notification (new message - triggers Slack notification)
-  await sendMessageSlack(`channel:${channelId}`, `✅ Done`, {});
+  // Send completion notification (new message - triggers notification)
+  await sendMessage(`channel:${channelId}`, `✅ Done`, {});
 
   return { error: undefined };
 }
@@ -823,14 +834,14 @@ export async function handleOpencodeCommandDirect(params: {
 
         // Execute with streaming using shared helper
         const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
-        const streamResult = await streamToSlack({
+        const streamResult = await streamToIM({
           streamingFn: runOpencodeCommandStreaming,
           message,
           projectDir: sessionEntry.opencodeProjectDir,
           agent: targetAgent,
           model: sessionEntry.opencodeModel,
-          sendMessageSlack,
-          editSlackMessage,
+          sendMessage: sendMessageSlack,
+          editMessage: editSlackMessage,
           channelId,
           responsePrefix,
         });

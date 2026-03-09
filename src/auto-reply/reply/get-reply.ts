@@ -28,7 +28,7 @@ import {
   runCodexCommand,
   runCodexCommandStreaming,
   validateProjectDir,
-  streamToSlack,
+  streamToIM,
 } from "./commands-opencode.js";
 import { resolveDefaultModel } from "./directive-handling.js";
 import { resolveReplyDirectives } from "./get-reply-directives.js";
@@ -606,13 +606,13 @@ Now generate the summary for continuing with ${modeLower}:`;
           streamingFn = runOpencodeCommandStreaming;
         }
 
-        const streamResult = await streamToSlack({
+        const streamResult = await streamToIM({
           streamingFn,
           message: migrationPrompt,
           projectDir: oldProjectDir,
           agent: "build",
-          sendMessageSlack,
-          editSlackMessage,
+          sendMessage: sendMessageSlack,
+          editMessage: editSlackMessage,
           channelId: channelId!,
           responsePrefix: responsePrefix!,
         });
@@ -964,14 +964,14 @@ Now generate the summary for continuing with ${modeLower}:`;
         }
 
         // Use shared helper for streaming
-        const streamResult = await streamToSlack({
+        const streamResult = await streamToIM({
           streamingFn: runOpencodeCommandStreaming,
           message: triggerBodyNormalized,
           projectDir: sessionEntry.opencodeProjectDir,
           agent: sessionEntry.opencodeAgent || "plan/build",
           model: sessionEntry.opencodeModel,
-          sendMessageSlack,
-          editSlackMessage,
+          sendMessage: sendMessageSlack,
+          editMessage: editSlackMessage,
           channelId: channelId!,
           responsePrefix: responsePrefix!,
         });
@@ -1080,14 +1080,14 @@ Now generate the summary for continuing with ${modeLower}:`;
         }
 
         // Use shared helper for streaming
-        const streamResult = await streamToSlack({
+        const streamResult = await streamToIM({
           streamingFn: runClaudeCodeCommandStreaming,
           message: triggerBodyNormalized,
           projectDir: sessionEntry.claudeCodeProjectDir,
           agent: sessionEntry.claudeCodeAgent || "build",
           model: sessionEntry.claudeCodeModel,
-          sendMessageSlack,
-          editSlackMessage,
+          sendMessage: sendMessageSlack,
+          editMessage: editSlackMessage,
           channelId: channelId!,
           responsePrefix: responsePrefix!,
         });
@@ -1195,14 +1195,14 @@ Now generate the summary for continuing with ${modeLower}:`;
         }
 
         // Use shared helper for streaming
-        const streamResult = await streamToSlack({
+        const streamResult = await streamToIM({
           streamingFn: runCodexCommandStreaming,
           message: triggerBodyNormalized,
           projectDir: sessionEntry.codexProjectDir,
           agent: sessionEntry.codexAgent || "build",
           model: sessionEntry.codexModel,
-          sendMessageSlack,
-          editSlackMessage,
+          sendMessage: sendMessageSlack,
+          editMessage: editSlackMessage,
           channelId: channelId!,
           responsePrefix: responsePrefix!,
         });
