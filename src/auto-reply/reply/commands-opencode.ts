@@ -40,40 +40,50 @@ export async function streamToSlack(params: {
   editSlackMessage: EditSlackMessageFn;
   channelId: string;
   responsePrefix: string;
-}): Promise<void> {
+}): Promise<{ error?: string }> {
   const { streamingFn, message, projectDir, agent, model, sendMessageSlack, editSlackMessage, channelId, responsePrefix } = params;
 
   const thinkingMsg = await sendMessageSlack(`channel:${channelId}`, `${responsePrefix} 🤔 Thinking...`, {});
-  if (!thinkingMsg.messageId) return;
+  if (!thinkingMsg.messageId) {
+    return { error: "Failed to send initial message" };
+  }
 
   let lastMessageId = thinkingMsg.messageId;
   let lastSent = "";
 
-  await streamingFn({
-    message,
-    projectDir,
-    agent,
-    model,
-    onChunk: async (chunk: string) => {
-      if (lastSent.length + chunk.length <= 3000) {
-        // Fits in current message - update it
-        lastSent = lastSent + chunk;
-        await editSlackMessage(channelId, lastMessageId, lastSent);
-      } else {
-        // Would exceed 3000 - send chunk as NEW message
-        const msg = await sendMessageSlack(`channel:${channelId}`, chunk, {});
-        if (msg.messageId) {
-          lastMessageId = msg.messageId;
-          lastSent = chunk;
+  try {
+    await streamingFn({
+      message,
+      projectDir,
+      agent,
+      model,
+      onChunk: async (chunk: string) => {
+        if (lastSent.length + chunk.length <= 3000) {
+          // Fits in current message - update it
+          lastSent = lastSent + chunk;
+          await editSlackMessage(channelId, lastMessageId, lastSent);
+        } else {
+          // Would exceed 3000 - send chunk as NEW message
+          const msg = await sendMessageSlack(`channel:${channelId}`, chunk, {});
+          if (msg.messageId) {
+            lastMessageId = msg.messageId;
+            lastSent = chunk;
+          }
         }
-      }
-    },
-  });
+      },
+    });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    await sendMessageSlack(`channel:${channelId}`, `❌ Error: ${errorMsg}`, {});
+    return { error: errorMsg };
+  }
 
   // Final update
   if (lastSent) {
     await editSlackMessage(channelId, lastMessageId, lastSent);
   }
+
+  return { error: undefined };
 }
 
 export type AutoLevel = "l0" | "l1" | "l2" | "l3" | "l4";
@@ -810,7 +820,7 @@ export async function handleOpencodeCommandDirect(params: {
 
         // Execute with streaming using shared helper
         const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
-        await streamToSlack({
+        const streamResult = await streamToSlack({
           streamingFn: runOpencodeCommandStreaming,
           message,
           projectDir: sessionEntry.opencodeProjectDir,
@@ -831,6 +841,10 @@ export async function handleOpencodeCommandDirect(params: {
           await updateSessionStore(storePath, (store) => {
             store[sessionKey] = sessionEntry;
           });
+        }
+
+        if (streamResult.error) {
+          return { text: `❌ ${streamResult.error}` };
         }
         return { text: "" };
       }

@@ -606,16 +606,20 @@ Now generate the summary for continuing with ${modeLower}:`;
           streamingFn = runOpencodeCommandStreaming;
         }
 
-        await streamToSlack({
+        const streamResult = await streamToSlack({
           streamingFn,
           message: migrationPrompt,
           projectDir: oldProjectDir,
           agent: "build",
           sendMessageSlack,
           editSlackMessage,
-          channelId,
-          responsePrefix,
+          channelId: channelId!,
+          responsePrefix: responsePrefix!,
         });
+
+        if (streamResult.error) {
+          return { text: `❌ Migration failed: ${streamResult.error}`, channelData: { responsePrefix } };
+        }
       } else {
         if (previousMode === "codex") {
           console.log("[MIGRATION] Running Codex plan command with:", {
@@ -960,7 +964,7 @@ Now generate the summary for continuing with ${modeLower}:`;
         }
 
         // Use shared helper for streaming
-        await streamToSlack({
+        const streamResult = await streamToSlack({
           streamingFn: runOpencodeCommandStreaming,
           message: triggerBodyNormalized,
           projectDir: sessionEntry.opencodeProjectDir,
@@ -971,6 +975,10 @@ Now generate the summary for continuing with ${modeLower}:`;
           channelId: channelId!,
           responsePrefix: responsePrefix!,
         });
+
+        if (streamResult.error) {
+          return { text: `❌ ${streamResult.error}`, channelData: { responsePrefix } };
+        }
 
         return { text: "", channelData: { responsePrefix } };
       }
@@ -1072,7 +1080,7 @@ Now generate the summary for continuing with ${modeLower}:`;
         }
 
         // Use shared helper for streaming
-        await streamToSlack({
+        const streamResult = await streamToSlack({
           streamingFn: runClaudeCodeCommandStreaming,
           message: triggerBodyNormalized,
           projectDir: sessionEntry.claudeCodeProjectDir,
@@ -1083,6 +1091,10 @@ Now generate the summary for continuing with ${modeLower}:`;
           channelId: channelId!,
           responsePrefix: responsePrefix!,
         });
+
+        if (streamResult.error) {
+          return { text: `❌ ${streamResult.error}`, channelData: { responsePrefix } };
+        }
 
         return { text: "", channelData: { responsePrefix } };
       }
@@ -1183,7 +1195,7 @@ Now generate the summary for continuing with ${modeLower}:`;
         }
 
         // Use shared helper for streaming
-        await streamToSlack({
+        const streamResult = await streamToSlack({
           streamingFn: runCodexCommandStreaming,
           message: triggerBodyNormalized,
           projectDir: sessionEntry.codexProjectDir,
@@ -1194,6 +1206,10 @@ Now generate the summary for continuing with ${modeLower}:`;
           channelId: channelId!,
           responsePrefix: responsePrefix!,
         });
+
+        if (streamResult.error) {
+          return { text: `❌ ${streamResult.error}`, channelData: { responsePrefix } };
+        }
 
         return { text: "", channelData: { responsePrefix } };
       }
