@@ -83,6 +83,9 @@ export async function streamToSlack(params: {
     await editSlackMessage(channelId, lastMessageId, lastSent);
   }
 
+  // Send completion notification (new message - triggers Slack notification)
+  await sendMessageSlack(`channel:${channelId}`, `✅ Done`, {});
+
   return { error: undefined };
 }
 
