@@ -28,6 +28,7 @@ import {
   runCodexCommand,
   runCodexCommandStreaming,
   validateProjectDir,
+  streamToSlack,
 } from "./commands-opencode.js";
 import { resolveDefaultModel } from "./directive-handling.js";
 import { resolveReplyDirectives } from "./get-reply-directives.js";
@@ -583,69 +584,38 @@ Now generate the summary for continuing with ${modeLower}:`;
       const responsePrefix = `[${modeLower}:${projectName}|plan]`;
 
       if (isSlack && channelId) {
-        const target = `channel:${channelId}`;
-        const threadOpts = threadId ? { threadTs: threadId } : {};
-
-        const thinkingMsg = await sendMessageSlack(
-          target,
-          `${responsePrefix} 🤔 Generating migration summary...`,
-          threadOpts,
-        );
-
-        let fullOutput = "";
-        let lastUpdate = Date.now();
-
-        const runStreaming = async (
-          streamingFn: (params: {
-            message: string;
-            projectDir: string;
-            agent: string;
-            onChunk: (chunk: string) => void;
-          }) => Promise<{ error?: string }>,
-        ) => {
-          await streamingFn({
-            message: migrationPrompt,
-            projectDir: oldProjectDir,
-            agent: "build",
-            onChunk: async (chunk: string) => {
-              fullOutput += chunk;
-              const now = Date.now();
-              if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
-                lastUpdate = now;
-                const displayText = fullOutput.slice(-3000);
-                await editSlackMessage(
-                  channelId,
-                  thinkingMsg.messageId,
-                  `${responsePrefix}\n${displayText}`,
-                );
-              }
-            },
-          });
-          summaryText = fullOutput;
-        };
-
+        // Use shared helper for streaming
+        let streamingFn;
         if (previousMode === "codex") {
           console.log("[MIGRATION] Running Codex plan command with:", {
             projectDir: oldProjectDir,
             agent: "build",
           });
-          await runStreaming(runCodexCommandStreaming);
+          streamingFn = runCodexCommandStreaming;
         } else if (previousMode === "claude") {
           console.log("[MIGRATION] Running Claude Code plan command with:", {
             projectDir: oldProjectDir,
             agent: "build",
           });
-          await runStreaming(runClaudeCodeCommandStreaming);
-        } else if (previousMode === "opencode") {
+          streamingFn = runClaudeCodeCommandStreaming;
+        } else {
           console.log("[MIGRATION] Running OpenCode plan command with:", {
             projectDir: oldProjectDir,
             agent: "build",
           });
-          await runStreaming(runOpencodeCommandStreaming);
+          streamingFn = runOpencodeCommandStreaming;
         }
 
-        const finalText = summaryText.slice(-3000);
-        await editSlackMessage(channelId, thinkingMsg.messageId, `${responsePrefix}\n${finalText}`);
+        await streamToSlack({
+          streamingFn,
+          message: migrationPrompt,
+          projectDir: oldProjectDir,
+          agent: "build",
+          sendMessageSlack,
+          editSlackMessage,
+          channelId,
+          responsePrefix,
+        });
       } else {
         if (previousMode === "codex") {
           console.log("[MIGRATION] Running Codex plan command with:", {
@@ -989,50 +959,18 @@ Now generate the summary for continuing with ${modeLower}:`;
           return { text: result.text, channelData: { responsePrefix } };
         }
 
-        let lastUpdate = Date.now();
-        let lastMessageId = thinkingMsg.messageId;  // Track last message ID to edit
-        let lastMessageLength = 0;
-
-        await runOpencodeCommandStreaming({
+        // Use shared helper for streaming
+        await streamToSlack({
+          streamingFn: runOpencodeCommandStreaming,
           message: triggerBodyNormalized,
           projectDir: sessionEntry.opencodeProjectDir,
           agent: sessionEntry.opencodeAgent || "plan/build",
           model: sessionEntry.opencodeModel,
-          onChunk: async (chunk) => {
-            console.log("[OPENCODE CHUNK]", chunk.substring(0, 200));
-            fullOutput += chunk;
-            const now = Date.now();
-            if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
-              lastUpdate = now;
-              const displayText = fullOutput.slice(-3000);
-
-              // If we have space in current message (< 3000 chars), edit it
-              // Otherwise send new threaded message
-              if (lastMessageLength < 3000) {
-                await editSlackMessage(
-                  channelId,
-                  lastMessageId,
-                  `${responsePrefix}\n${displayText}`,
-                );
-                lastMessageLength = displayText.length;
-              } else {
-                // Send new threaded message
-                const newMsg = await sendMessageSlack(
-                  `channel:${channelId}`,
-                  `${responsePrefix}\n${displayText}`,
-                  { threadTs: thinkingMsg.messageId }
-                );
-                if (newMsg.messageId) {
-                  lastMessageId = newMsg.messageId;
-                  lastMessageLength = displayText.length;
-                }
-              }
-            }
-          },
+          sendMessageSlack,
+          editSlackMessage,
+          channelId: channelId!,
+          responsePrefix: responsePrefix!,
         });
-
-        const finalText = fullOutput.slice(-3000);
-        await editSlackMessage(channelId, lastMessageId, `${responsePrefix}\n${finalText}`);
 
         return { text: "", channelData: { responsePrefix } };
       }
@@ -1133,49 +1071,18 @@ Now generate the summary for continuing with ${modeLower}:`;
           return { text: result.text, channelData: { responsePrefix } };
         }
 
-        let lastUpdate = Date.now();
-        let lastMessageId = thinkingMsg.messageId;  // Track last message ID to edit
-        let lastMessageLength = 0;
-
-        await runClaudeCodeCommandStreaming({
+        // Use shared helper for streaming
+        await streamToSlack({
+          streamingFn: runClaudeCodeCommandStreaming,
           message: triggerBodyNormalized,
           projectDir: sessionEntry.claudeCodeProjectDir,
           agent: sessionEntry.claudeCodeAgent || "build",
           model: sessionEntry.claudeCodeModel,
-          onChunk: async (chunk) => {
-            fullOutput += chunk;
-            const now = Date.now();
-            if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
-              lastUpdate = now;
-              const displayText = fullOutput.slice(-3000);
-
-              // If we have space in current message (< 3000 chars), edit it
-              // Otherwise send new threaded message
-              if (lastMessageLength < 3000) {
-                await editSlackMessage(
-                  channelId,
-                  lastMessageId,
-                  `${responsePrefix}\n${displayText}`,
-                );
-                lastMessageLength = displayText.length;
-              } else {
-                // Send new threaded message
-                const newMsg = await sendMessageSlack(
-                  `channel:${channelId}`,
-                  `${responsePrefix}\n${displayText}`,
-                  { threadTs: thinkingMsg.messageId }
-                );
-                if (newMsg.messageId) {
-                  lastMessageId = newMsg.messageId;
-                  lastMessageLength = displayText.length;
-                }
-              }
-            }
-          },
+          sendMessageSlack,
+          editSlackMessage,
+          channelId: channelId!,
+          responsePrefix: responsePrefix!,
         });
-
-        const finalText = fullOutput.slice(-3000);
-        await editSlackMessage(channelId, lastMessageId, `${responsePrefix}\n${finalText}`);
 
         return { text: "", channelData: { responsePrefix } };
       }
@@ -1275,49 +1182,18 @@ Now generate the summary for continuing with ${modeLower}:`;
           return { text: result.text, channelData: { responsePrefix } };
         }
 
-        let lastUpdate = Date.now();
-        let lastMessageId = thinkingMsg.messageId;  // Track last message ID to edit
-        let lastMessageLength = 0;
-
-        await runCodexCommandStreaming({
+        // Use shared helper for streaming
+        await streamToSlack({
+          streamingFn: runCodexCommandStreaming,
           message: triggerBodyNormalized,
           projectDir: sessionEntry.codexProjectDir,
           agent: sessionEntry.codexAgent || "build",
           model: sessionEntry.codexModel,
-          onChunk: async (chunk) => {
-            fullOutput += chunk;
-            const now = Date.now();
-            if (now - lastUpdate >= 1000 || chunk.includes("❌") || chunk.includes("⚠️")) {
-              lastUpdate = now;
-              const displayText = fullOutput.slice(-3000);
-
-              // If we have space in current message (< 3000 chars), edit it
-              // Otherwise send new threaded message
-              if (lastMessageLength < 3000) {
-                await editSlackMessage(
-                  channelId,
-                  lastMessageId,
-                  `${responsePrefix}\n${displayText}`,
-                );
-                lastMessageLength = displayText.length;
-              } else {
-                // Send new threaded message
-                const newMsg = await sendMessageSlack(
-                  `channel:${channelId}`,
-                  `${responsePrefix}\n${displayText}`,
-                  { threadTs: thinkingMsg.messageId }
-                );
-                if (newMsg.messageId) {
-                  lastMessageId = newMsg.messageId;
-                  lastMessageLength = displayText.length;
-                }
-              }
-            }
-          },
+          sendMessageSlack,
+          editSlackMessage,
+          channelId: channelId!,
+          responsePrefix: responsePrefix!,
         });
-
-        const finalText = fullOutput.slice(-3000);
-        await editSlackMessage(channelId, lastMessageId, `${responsePrefix}\n${finalText}`);
 
         return { text: "", channelData: { responsePrefix } };
       }

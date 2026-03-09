@@ -20,6 +20,62 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_OPENCODE_AGENT = "build";
 const OPENCODE_TIMEOUT_MS = 300_000;
 
+type SendMessageSlackFn = (target: string, text: string, opts?: object) => Promise<{ messageId?: string }>;
+type EditSlackMessageFn = (channelId: string, messageId: string, text: string) => Promise<void>;
+type StreamingFn = (params: {
+  message: string;
+  projectDir: string;
+  agent: string;
+  model?: string;
+  onChunk: (chunk: string) => void | Promise<void>;
+}) => Promise<{ error?: string }>;
+
+export async function streamToSlack(params: {
+  streamingFn: StreamingFn;
+  message: string;
+  projectDir: string;
+  agent: string;
+  model?: string;
+  sendMessageSlack: SendMessageSlackFn;
+  editSlackMessage: EditSlackMessageFn;
+  channelId: string;
+  responsePrefix: string;
+}): Promise<void> {
+  const { streamingFn, message, projectDir, agent, model, sendMessageSlack, editSlackMessage, channelId, responsePrefix } = params;
+
+  const thinkingMsg = await sendMessageSlack(`channel:${channelId}`, `${responsePrefix} 🤔 Thinking...`, {});
+  if (!thinkingMsg.messageId) return;
+
+  let lastMessageId = thinkingMsg.messageId;
+  let lastSent = "";
+
+  await streamingFn({
+    message,
+    projectDir,
+    agent,
+    model,
+    onChunk: async (chunk: string) => {
+      if (lastSent.length + chunk.length <= 3000) {
+        // Fits in current message - update it
+        lastSent = lastSent + chunk;
+        await editSlackMessage(channelId, lastMessageId, lastSent);
+      } else {
+        // Would exceed 3000 - send chunk as NEW message
+        const msg = await sendMessageSlack(`channel:${channelId}`, chunk, {});
+        if (msg.messageId) {
+          lastMessageId = msg.messageId;
+          lastSent = chunk;
+        }
+      }
+    },
+  });
+
+  // Final update
+  if (lastSent) {
+    await editSlackMessage(channelId, lastMessageId, lastSent);
+  }
+}
+
 export type AutoLevel = "l0" | "l1" | "l2" | "l3" | "l4";
 
 export interface AutoLevelResult {
@@ -741,76 +797,42 @@ export async function handleOpencodeCommandDirect(params: {
       const channelId = channelMatch ? channelMatch[1].toUpperCase() : null;
 
       if (channelId) {
-        // Send initial thinking message
-        const thinkingMsg = await sendMessageSlack(`channel:${channelId}`, `${responsePrefix} 🤔 Thinking...`, {});
-        if (thinkingMsg.messageId) {
-          // Temporarily set to target agent
-          sessionEntry.opencodeAgent = targetAgent;
-          sessionEntry.opencodeResponsePrefix = responsePrefix;
-          if (sessionKey && sessionStore && storePath) {
-            sessionEntry.updatedAt = Date.now();
-            sessionStore[sessionKey] = sessionEntry;
-            await updateSessionStore(storePath, (store) => {
-              store[sessionKey] = sessionEntry;
-            });
-          }
-
-          // Execute with streaming
-          const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
-          let fullOutput = "";
-          let lastUpdate = Date.now();
-          let lastMessageId = thinkingMsg.messageId;  // Track last message ID to edit
-          let lastMessageLength = 0;
-
-          await runOpencodeCommandStreaming({
-            message,
-            projectDir: sessionEntry.opencodeProjectDir,
-            agent: targetAgent,
-            model: sessionEntry.opencodeModel,
-            onChunk: async (chunk) => {
-              fullOutput += chunk;
-              const now = Date.now();
-              if (now - lastUpdate >= 0 || chunk.includes("❌") || chunk.includes("⚠️")) {
-                lastUpdate = now;
-                const displayText = fullOutput.slice(-3000);
-
-                // If we have space in current message (< 3000 chars), edit it
-                // Otherwise send new threaded message
-                if (lastMessageLength < 3000) {
-                  await editSlackMessage(channelId, lastMessageId!, `${responsePrefix}\n${displayText}`);
-                  lastMessageLength = displayText.length;
-                } else {
-                  // Send new threaded message
-                  const newMsg = await sendMessageSlack(
-                    `channel:${channelId}`,
-                    `${responsePrefix}\n${displayText}`,
-                    { thread_ts: thinkingMsg.messageId }
-                  );
-                  if (newMsg.messageId) {
-                    lastMessageId = newMsg.messageId;
-                    lastMessageLength = displayText.length;
-                  }
-                }
-              }
-            },
+        // Temporarily set to target agent
+        sessionEntry.opencodeAgent = targetAgent;
+        sessionEntry.opencodeResponsePrefix = responsePrefix;
+        if (sessionKey && sessionStore && storePath) {
+          sessionEntry.updatedAt = Date.now();
+          sessionStore[sessionKey] = sessionEntry;
+          await updateSessionStore(storePath, (store) => {
+            store[sessionKey] = sessionEntry;
           });
-
-          // Final update
-          const finalText = fullOutput.slice(-3000);
-          await editSlackMessage(channelId, lastMessageId!, `${responsePrefix}\n${finalText}`);
-
-          // Restore original agent
-          sessionEntry.opencodeAgent = originalAgent;
-          sessionEntry.opencodeResponsePrefix = originalPrefix;
-          if (sessionKey && sessionStore && storePath) {
-            sessionEntry.updatedAt = Date.now();
-            sessionStore[sessionKey] = sessionEntry;
-            await updateSessionStore(storePath, (store) => {
-              store[sessionKey] = sessionEntry;
-            });
-          }
-          return { text: "" };
         }
+
+        // Execute with streaming using shared helper
+        const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
+        await streamToSlack({
+          streamingFn: runOpencodeCommandStreaming,
+          message,
+          projectDir: sessionEntry.opencodeProjectDir,
+          agent: targetAgent,
+          model: sessionEntry.opencodeModel,
+          sendMessageSlack,
+          editSlackMessage,
+          channelId,
+          responsePrefix,
+        });
+
+        // Restore original agent
+        sessionEntry.opencodeAgent = originalAgent;
+        sessionEntry.opencodeResponsePrefix = originalPrefix;
+        if (sessionKey && sessionStore && storePath) {
+          sessionEntry.updatedAt = Date.now();
+          sessionStore[sessionKey] = sessionEntry;
+          await updateSessionStore(storePath, (store) => {
+            store[sessionKey] = sessionEntry;
+          });
+        }
+        return { text: "" };
       }
     }
 
