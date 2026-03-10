@@ -70,7 +70,15 @@ export async function streamToIM(params: {
     case "telegram": {
       const { sendMessageTelegram, editMessageTelegram } = await import("../../telegram/send.js");
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      sendFn = (to, text, opts: any) => sendMessageTelegram(to, text, opts);
+      sendFn = (to, text, opts: any) => {
+        console.log(
+          "[STREAM_TELEGRAM] sendMessageTelegram called with to:",
+          to,
+          "opts:",
+          Object.keys(opts || {}),
+        );
+        return sendMessageTelegram(to, text, opts);
+      };
       editFn = (to, msgId, text) => editMessageTelegram(to, parseInt(msgId), text);
       charLimit = 4096;
       break;
@@ -95,11 +103,23 @@ export async function streamToIM(params: {
   }
 
   // Separate targets for send vs edit - Slack/Discord need prefix for send but NOT for edit
+  // Telegram: use the raw targetId as-is (can be numeric ID or username)
   const sendTarget =
-    platform === "slack" || platform === "discord" ? `channel:${targetId}` : targetId;
+    platform === "slack" || platform === "discord"
+      ? `channel:${targetId}`
+      : platform === "telegram"
+        ? targetId // Telegram expects numeric ID or username directly
+        : targetId;
   const editTarget = targetId; // Edit functions don't need the channel: prefix
 
-  console.log("[STREAM_DEBUG] sendTarget:", sendTarget, "editTarget:", editTarget);
+  console.log(
+    "[STREAM_DEBUG] platform:",
+    platform,
+    "sendTarget:",
+    sendTarget,
+    "editTarget:",
+    editTarget,
+  );
 
   const thinkingMsg = await sendFn(sendTarget, `${responsePrefix} 🤔 Thinking...`, {});
   if (!thinkingMsg.messageId) {
