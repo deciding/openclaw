@@ -11,6 +11,7 @@ import { createDefaultDeps } from "../cli/deps.js";
 import { isRestartEnabled } from "../config/commands.js";
 import {
   CONFIG_PATH,
+  DEFAULT_GATEWAY_PORT,
   isNixMode,
   loadConfig,
   migrateLegacyConfig,
@@ -166,7 +167,7 @@ export type GatewayServerOptions = {
 };
 
 export async function startGatewayServer(
-  port = 18789,
+  port = DEFAULT_GATEWAY_PORT,
   opts: GatewayServerOptions = {},
 ): Promise<GatewayServer> {
   const minimalTestGateway =

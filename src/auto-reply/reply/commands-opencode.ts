@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { WebClient } from "@slack/web-api";
-import { loadConfig } from "../../config/config.js";
+import { loadConfig, type OpenClawConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import { updateSessionStore } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
@@ -20,8 +20,6 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_OPENCODE_AGENT = "build";
 const OPENCODE_TIMEOUT_MS = 300_000;
 
-type SendMessageFn = (target: string, text: string, opts?: object) => Promise<{ messageId?: string }>;
-type EditMessageFn = (channelId: string, messageId: string, text: string) => Promise<void>;
 type StreamingFn = (params: {
   message: string;
   projectDir: string;
@@ -36,14 +34,74 @@ export async function streamToIM(params: {
   projectDir: string;
   agent: string;
   model?: string;
-  sendMessage: SendMessageFn;
-  editMessage?: EditMessageFn;
-  channelId: string;
+  platform: "slack" | "discord" | "whatsapp" | "telegram" | "imessage";
+  targetId: string;
   responsePrefix: string;
+  cfg: OpenClawConfig;
 }): Promise<{ error?: string }> {
-  const { streamingFn, message, projectDir, agent, model, sendMessage, editMessage, channelId, responsePrefix } = params;
+  const { streamingFn, message, projectDir, agent, model, platform, targetId, responsePrefix } =
+    params;
 
-  const thinkingMsg = await sendMessage(`channel:${channelId}`, `${responsePrefix} 🤔 Thinking...`, {});
+  // Import platform-specific send and edit functions
+  let sendFn: (to: string, text: string, opts?: object) => Promise<{ messageId?: string }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let editFn: ((to: string, msgId: string, text: string) => Promise<any>) | undefined;
+  let charLimit = 3000;
+
+  switch (platform) {
+    case "slack": {
+      const { sendMessageSlack } = await import("../../slack/send.js");
+      const { editSlackMessage } = await import("../../slack/actions.js");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sendFn = (to, text, opts: any) => sendMessageSlack(to, text, opts);
+      editFn = (to, msgId, text) => editSlackMessage(to, msgId, text);
+      charLimit = 3000;
+      break;
+    }
+    case "discord": {
+      const { sendMessageDiscord } = await import("../../discord/send.outbound.js");
+      const { editMessageDiscord } = await import("../../discord/send.messages.js");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sendFn = (to, text, opts: any) => sendMessageDiscord(to, text, opts);
+      editFn = (to, msgId, text) => editMessageDiscord(to, msgId, { content: text });
+      charLimit = 2000;
+      break;
+    }
+    case "telegram": {
+      const { sendMessageTelegram, editMessageTelegram } = await import("../../telegram/send.js");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sendFn = (to, text, opts: any) => sendMessageTelegram(to, text, opts);
+      editFn = (to, msgId, text) => editMessageTelegram(to, parseInt(msgId), text);
+      charLimit = 4096;
+      break;
+    }
+    case "whatsapp": {
+      const { sendMessageWhatsApp } = await import("../../web/outbound.js");
+      sendFn = (to, text) => sendMessageWhatsApp(to, text, { verbose: false });
+      editFn = undefined; // WhatsApp doesn't support edit
+      charLimit = 10000;
+      break;
+    }
+    case "imessage": {
+      const { sendMessageIMessage } = await import("../../imessage/send.js");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sendFn = (to, text, opts: any) => sendMessageIMessage(to, text, opts);
+      editFn = undefined; // iMessage doesn't support edit
+      charLimit = 10000;
+      break;
+    }
+    default:
+      return { error: `Unsupported platform: ${String(platform)}` };
+  }
+
+  // Separate targets for send vs edit - Slack/Discord need prefix for send but NOT for edit
+  const sendTarget =
+    platform === "slack" || platform === "discord" ? `channel:${targetId}` : targetId;
+  const editTarget = targetId; // Edit functions don't need the channel: prefix
+
+  console.log("[STREAM_DEBUG] sendTarget:", sendTarget, "editTarget:", editTarget);
+
+  const thinkingMsg = await sendFn(sendTarget, `${responsePrefix} 🤔 Thinking...`, {});
   if (!thinkingMsg.messageId) {
     return { error: "Failed to send initial message" };
   }
@@ -51,7 +109,7 @@ export async function streamToIM(params: {
   let lastMessageId = thinkingMsg.messageId;
   let lastSent = "";
 
-  const canEdit = !!editMessage;
+  const canEdit = !!editFn;
 
   try {
     await streamingFn({
@@ -60,20 +118,20 @@ export async function streamToIM(params: {
       agent,
       model,
       onChunk: async (chunk: string) => {
-        if (canEdit && lastSent.length + chunk.length <= 3000) {
+        if (canEdit && lastSent.length + chunk.length <= charLimit) {
           // Has edit capability and fits - update existing message
           lastSent = lastSent + chunk;
-          await editMessage!(channelId, lastMessageId, lastSent);
+          await editFn!(editTarget, lastMessageId, lastSent);
         } else if (canEdit) {
           // Has edit but would exceed - send new message
-          const msg = await sendMessage(`channel:${channelId}`, `${responsePrefix}\n${chunk}`, {});
+          const msg = await sendFn(sendTarget, `${responsePrefix}\n${chunk}`, {});
           if (msg.messageId) {
             lastMessageId = msg.messageId;
             lastSent = chunk;
           }
         } else {
           // No edit capability - always send new messages
-          const msg = await sendMessage(`channel:${channelId}`, `${responsePrefix}\n${chunk}`, {});
+          const msg = await sendFn(sendTarget, `${responsePrefix}\n${chunk}`, {});
           if (msg.messageId) {
             lastMessageId = msg.messageId;
             lastSent = chunk;
@@ -83,19 +141,19 @@ export async function streamToIM(params: {
     });
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    await sendMessage(`channel:${channelId}`, `❌ Error: ${errorMsg}`, {});
+    await sendFn(sendTarget, `❌ Error: ${errorMsg}`, {});
     return { error: errorMsg };
   }
 
   // Final update
   if (lastSent) {
     if (canEdit) {
-      await editMessage!(channelId, lastMessageId, lastSent);
+      await editFn!(editTarget, lastMessageId, lastSent);
     }
   }
 
   // Send completion notification (new message - triggers notification)
-  await sendMessage(`channel:${channelId}`, `✅ Done`, {});
+  await sendFn(sendTarget, `✅ Done`, {});
 
   return { error: undefined };
 }
@@ -132,14 +190,14 @@ export function calculateAutoLevel(params: { projectDir: string; mode: string })
     }
   } else {
     try {
-      mkdir(handclawDir, { recursive: true });
+      void mkdir(handclawDir, { recursive: true });
       const initContent = `# Code Feedback - ${mode}
 
 coding_requests: ${totalRequests}
 codes_accepted: ${totalAccepted}
 last_updated: ${new Date().toISOString()}
 `;
-      writeFile(filePath, initContent);
+      void writeFile(filePath, initContent);
     } catch {
       // Use defaults
     }
@@ -628,11 +686,24 @@ export async function handleOpencodeCommandDirect(params: {
   sessionStore?: Record<string, SessionEntry>;
   sessionKey?: string;
   storePath?: string;
-  channelLabel?: string;
-  sendMessageSlack?: (target: string, text: string, opts?: object) => Promise<{ messageId?: string }>;
-  editSlackMessage?: (channelId: string, messageId: string, text: string) => Promise<void>;
+  _channelLabel?: string;
+  _sendMessageSlack?: (
+    target: string,
+    text: string,
+    opts?: object,
+  ) => Promise<{ messageId?: string }>;
+  _editSlackMessage?: (channelId: string, messageId: string, text: string) => Promise<void>;
 }): Promise<ReplyPayload | null> {
-  const { commandBody, sessionEntry, sessionStore, sessionKey, storePath, channelLabel, sendMessageSlack, editSlackMessage } = params;
+  const {
+    commandBody,
+    sessionEntry,
+    sessionStore,
+    sessionKey,
+    storePath,
+    _channelLabel,
+    _sendMessageSlack,
+    _editSlackMessage,
+  } = params;
 
   const parsed = parseOpencodeCommand(commandBody);
 
@@ -801,12 +872,11 @@ export async function handleOpencodeCommandDirect(params: {
   }
 
   // Helper function to execute with temporary agent (reduces duplication)
-  async function executeWithTempAgent(
-    targetAgent: string,
-    message: string,
-  ): Promise<ReplyPayload> {
+  async function executeWithTempAgent(targetAgent: string, message: string): Promise<ReplyPayload> {
     if (!sessionEntry?.opencodeMode || !sessionEntry?.opencodeProjectDir) {
-      return { text: `❌ Not in opencode mode. Use \`!code [proj_dir]\` to enter opencode mode first.` };
+      return {
+        text: `❌ Not in opencode mode. Use \`!code [proj_dir]\` to enter opencode mode first.`,
+      };
     }
     const projectName = getRepoName(sessionEntry.opencodeProjectDir);
     const responsePrefix = `[opencode:${projectName}|${targetAgent}]`;
@@ -815,12 +885,20 @@ export async function handleOpencodeCommandDirect(params: {
     const originalAgent = sessionEntry.opencodeAgent || "build";
     const originalPrefix = sessionEntry.opencodeResponsePrefix;
 
-    // If Slack streaming functions available, use streaming
-    if (sendMessageSlack && editSlackMessage && sessionEntry.origin?.from) {
-      const channelMatch = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
-      const channelId = channelMatch ? channelMatch[1].toUpperCase() : null;
+    // If streaming functions available, use streaming (platform-agnostic)
+    if (sessionEntry.origin?.from) {
+      const platformMatch = sessionEntry.origin.from.match(
+        /^(slack|discord|whatsapp|telegram|imessage):(channel:|chat:|user:)?(.+)$/i,
+      );
+      if (platformMatch) {
+        const platform = platformMatch[1].toLowerCase() as
+          | "slack"
+          | "discord"
+          | "whatsapp"
+          | "telegram"
+          | "imessage";
+        const targetId = platformMatch[3];
 
-      if (channelId) {
         // Temporarily set to target agent
         sessionEntry.opencodeAgent = targetAgent;
         sessionEntry.opencodeResponsePrefix = responsePrefix;
@@ -834,16 +912,17 @@ export async function handleOpencodeCommandDirect(params: {
 
         // Execute with streaming using shared helper
         const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
+        const cfg = loadConfig();
         const streamResult = await streamToIM({
           streamingFn: runOpencodeCommandStreaming,
           message,
           projectDir: sessionEntry.opencodeProjectDir,
           agent: targetAgent,
           model: sessionEntry.opencodeModel,
-          sendMessage: sendMessageSlack,
-          editMessage: editSlackMessage,
-          channelId,
+          platform,
+          targetId,
           responsePrefix,
+          cfg,
         });
 
         // Restore original agent
@@ -1063,7 +1142,9 @@ export async function runClaudeCodeCommandStreaming(params: {
 
       const lines = chunk.split("\n");
       for (const line of lines) {
-        if (!line.trim()) continue;
+        if (!line.trim()) {
+          continue;
+        }
         try {
           const parsed = JSON.parse(line);
           if (parsed.type === "assistant" && parsed.message?.content) {

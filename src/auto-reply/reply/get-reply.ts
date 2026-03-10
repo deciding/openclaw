@@ -23,11 +23,6 @@ import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import {
   runOpencodeCommand,
   runOpencodeCommandStreaming,
-  runClaudeCodeCommand,
-  runClaudeCodeCommandStreaming,
-  runCodexCommand,
-  runCodexCommandStreaming,
-  validateProjectDir,
   streamToIM,
 } from "./commands-opencode.js";
 import { resolveDefaultModel } from "./directive-handling.js";
@@ -35,6 +30,7 @@ import { resolveReplyDirectives } from "./get-reply-directives.js";
 import { handleInlineActions } from "./get-reply-inline-actions.js";
 import { runPreparedReply } from "./get-reply-run.js";
 import { finalizeInboundContext } from "./inbound-context.js";
+import { routeReply } from "./route-reply.js";
 import { applyResetModelOverride } from "./session-reset-model.js";
 import { initSessionState } from "./session.js";
 import { stageSandboxMedia } from "./stage-sandbox-media.js";
@@ -51,7 +47,7 @@ async function recordUserInstruction(params: {
     return;
   }
 
-  const { mkdir, appendFile, writeFile } = await import("node:fs/promises");
+  const { mkdir, appendFile } = await import("node:fs/promises");
   const { existsSync, readFileSync } = await import("node:fs");
   const handclawDir = path.join(projectDir, ".handclaw");
   const fileName = `USER_INSTRUCTIONS_${mode.toUpperCase()}.md`;
@@ -67,10 +63,42 @@ async function recordUserInstruction(params: {
     const content = existsSync(filePath) ? readFileSync(filePath, "utf-8") : "";
     const lineCount = content.split("\n").filter((l: string) => l.trim()).length;
 
-    if (lineCount > 500) {
+    if (lineCount > 10000) {
       console.log(
-        `[USER_FEEDBACK] Line count: ${lineCount}, triggering summarization (> 500 lines)`,
+        `[USER_FEEDBACK] Line count: ${lineCount}, triggering summarization (> 10000 lines)`,
       );
+
+      const { loadConfig } = await import("../../config/config.js");
+      const cfg = loadConfig();
+
+      let extractedPlatform: string | null = null;
+      let extractedTargetId: string | null = null;
+
+      if (sessionEntry?.origin?.from) {
+        const originFrom = sessionEntry.origin.from;
+
+        const platformMatch = originFrom.match(
+          /^(slack|discord|whatsapp|telegram|imessage):(channel:|chat:|user:)?(.+)$/i,
+        );
+        if (platformMatch) {
+          extractedPlatform = platformMatch[1].toLowerCase();
+          extractedTargetId = platformMatch[3];
+
+          try {
+            await routeReply({
+              payload: {
+                text: "📝 Processing your accumulated instructions for evaluation... This may take a moment.",
+              },
+              channel: extractedPlatform,
+              to: extractedTargetId,
+              cfg,
+            });
+          } catch (err) {
+            console.log(`[USER_FEEDBACK] Failed to send evaluation notification: ${String(err)}`);
+          }
+        }
+      }
+
       await summarizeUserInstructions({
         projectDir,
         mode,
@@ -84,12 +112,9 @@ async function recordUserInstruction(params: {
         `[USER_FEEDBACK] Auto level result: level=${result.level}, ratio=${result.ratio}, percentage=${result.percentage}%, requests=${result.totalRequests}, accepted=${result.totalAccepted}`,
       );
 
-      const fromMatch = sessionEntry?.origin?.from?.match(/slack:channel:([^:]+)/i);
-      const channelId = fromMatch?.[1];
-
-      if (channelId) {
-        console.log(`[USER_FEEDBACK] Channel ID: ${channelId}`);
-        const currentName = await getSlackChannelName(channelId);
+      if (extractedPlatform === "slack" && extractedTargetId) {
+        console.log(`[USER_FEEDBACK] Channel ID: ${extractedTargetId}`);
+        const currentName = await getSlackChannelName(extractedTargetId);
         console.log(`[USER_FEEDBACK] Current channel name: ${currentName}`);
         if (currentName) {
           const modeMatch = currentName.match(/^(?:l[0-4]-)?(opencode|claude|codex)[-:](.+)$/i);
@@ -99,12 +124,14 @@ async function recordUserInstruction(params: {
               `[USER_FEEDBACK] Rename check - current: ${currentName}, new: ${newName}, shouldRename: ${newName !== currentName}`,
             );
             if (newName !== currentName) {
-              await renameSlackChannel({ channelId, newName });
+              await renameSlackChannel({ channelId: extractedTargetId, newName });
             } else {
               console.log(`[USER_FEEDBACK] Skip rename - name unchanged`);
             }
           } else {
-            console.log(`[USER_FEEDBACK] Skip rename - mode mismatch or no match: ${modeMatch}`);
+            console.log(
+              `[USER_FEEDBACK] Skip rename - mode mismatch or no match: ${String(modeMatch)}`,
+            );
           }
         } else {
           console.log(`[USER_FEEDBACK] Skip rename - could not get current channel name`);
@@ -149,7 +176,7 @@ Instructions:
 ${recentContent}`;
 
     let resultText = "";
-    let resultError = "";
+    let _resultError = "";
 
     if (mode === "opencode") {
       const { runOpencodeCommand } = await import("./commands-opencode.js");
@@ -159,7 +186,7 @@ ${recentContent}`;
         agent: "build",
       });
       resultText = result.text;
-      resultError = result.error || "";
+      _resultError = result.error || "";
     } else if (mode === "claude") {
       const { runClaudeCodeCommand } = await import("./commands-opencode.js");
       const result = await runClaudeCodeCommand({
@@ -168,7 +195,7 @@ ${recentContent}`;
         agent: "build",
       });
       resultText = result.text;
-      resultError = result.error || "";
+      _resultError = result.error || "";
     } else if (mode === "codex") {
       const { runCodexCommand } = await import("./commands-opencode.js");
       const result = await runCodexCommand({
@@ -177,7 +204,7 @@ ${recentContent}`;
         agent: "build",
       });
       resultText = result.text;
-      resultError = result.error || "";
+      _resultError = result.error || "";
     }
 
     console.log("[USER_FEEDBACK] LLM response:", resultText);
@@ -547,35 +574,27 @@ Now generate the summary for continuing with ${modeLower}:`;
         runCodexCommandStreaming,
       } = await import("./commands-opencode.js");
 
-      const isSlack =
-        finalized.Provider === "slack" ||
-        finalized.Surface === "slack" ||
-        finalized.OriginatingChannel === "slack";
+      let platform: "slack" | "discord" | "whatsapp" | "telegram" | "imessage" = "slack";
+      let targetId: string | null = null;
+      let _threadId: string | null = null;
 
-      let channelId: string | null = null;
-      let threadId: string | null = null;
+      if (sessionEntry?.origin?.from) {
+        const platformMatch = sessionEntry.origin.from.match(
+          /^(slack|discord|whatsapp|telegram|imessage):(channel:|chat:|user:)?(.+)$/i,
+        );
+        if (platformMatch) {
+          platform = platformMatch[1].toLowerCase() as typeof platform;
+          targetId = platformMatch[3];
+        }
+      }
 
-      if (isSlack) {
-        if (sessionEntry?.origin?.from) {
-          const match = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
-          if (match) {
-            channelId = match[1].toUpperCase();
-          }
+      if (!targetId && sessionEntry?.origin?.to) {
+        const toMatch = sessionEntry.origin.to.match(
+          /(slack|discord|whatsapp|telegram|imessage):(channel:|chat:|user:)?(.+)$/i,
+        );
+        if (toMatch) {
+          targetId = toMatch[3];
         }
-        if (!channelId && sessionEntry.origin?.to) {
-          const match = sessionEntry.origin.to.match(/channel:([^:]+)/i);
-          if (match) {
-            channelId = match[1].toUpperCase();
-          }
-        }
-        if (!channelId) {
-          const channelMatch = sessionKey?.match(/slack:channel:([^:]+)/i);
-          if (channelMatch) {
-            channelId = channelMatch[1].toUpperCase();
-          }
-        }
-        const threadMatch = sessionKey?.match(/slack:channel:[^:]+:thread:([^:]+)/);
-        threadId = threadMatch ? threadMatch[1] : null;
       }
 
       let oldProjectDir = previousProjectDir || projectDir;
@@ -583,8 +602,8 @@ Now generate the summary for continuing with ${modeLower}:`;
       let summaryError = "";
       const responsePrefix = `[${modeLower}:${projectName}|plan]`;
 
-      if (isSlack && channelId) {
-        // Use shared helper for streaming
+      if (targetId) {
+        // Use shared helper for streaming (platform-agnostic)
         let streamingFn;
         if (previousMode === "codex") {
           console.log("[MIGRATION] Running Codex plan command with:", {
@@ -611,14 +630,17 @@ Now generate the summary for continuing with ${modeLower}:`;
           message: migrationPrompt,
           projectDir: oldProjectDir,
           agent: "build",
-          sendMessage: sendMessageSlack,
-          editMessage: editSlackMessage,
-          channelId: channelId!,
-          responsePrefix: responsePrefix!,
+          platform,
+          targetId: targetId,
+          responsePrefix: responsePrefix,
+          cfg,
         });
 
         if (streamResult.error) {
-          return { text: `❌ Migration failed: ${streamResult.error}`, channelData: { responsePrefix } };
+          return {
+            text: `❌ Migration failed: ${streamResult.error}`,
+            channelData: { responsePrefix },
+          };
         }
       } else {
         if (previousMode === "codex") {
@@ -767,9 +789,9 @@ Now generate the summary for continuing with ${modeLower}:`;
       sessionStore,
       sessionKey,
       storePath,
-      channelLabel: channelLabel ?? undefined,
-      sendMessageSlack,
-      editSlackMessage,
+      _channelLabel: channelLabel ?? undefined,
+      _sendMessageSlack: sendMessageSlack,
+      _editSlackMessage: editSlackMessage,
     });
     if (result) {
       return result;
@@ -802,49 +824,47 @@ Now generate the summary for continuing with ${modeLower}:`;
       const responseText = `📊 Code Acceptance Rate: ${result.percentage}% (${result.totalAccepted}/${result.totalRequests} requests accepted)
  🚀 Autonomous Level: ${result.level}`;
 
-      if (
-        finalized.Provider === "slack" ||
-        finalized.Surface === "slack" ||
-        finalized.OriginatingChannel === "slack"
-      ) {
-        let target = "";
-        if (sessionEntry?.origin?.from) {
-          const match = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
-          if (match) {
-            target = `channel:${match[1]}`;
-          }
+      if (sessionEntry?.origin?.from) {
+        const originFrom = sessionEntry.origin.from;
+        const platformMatch = originFrom.match(
+          /^(slack|discord|whatsapp|telegram|imessage):(channel:|chat:|user:)?(.+)$/i,
+        );
+        if (platformMatch) {
+          const platform = platformMatch[1].toLowerCase();
+          const targetId = platformMatch[3];
+          const cfg = loadConfig();
+          await routeReply({
+            payload: { text: responseText },
+            channel: platform,
+            to: targetId,
+            cfg,
+          });
+          return { text: "" };
         }
-        if (!target && finalized.GroupChannel) {
-          target = finalized.GroupChannel;
-        }
-        await sendMessageSlack(target, responseText);
-        return { text: "" };
-      } else {
-        return { text: responseText };
       }
+      return { text: responseText };
     } else {
       const responseText =
         "⚠️ Not in a coding CLI channel. Use this command in #opencode-, #claude-, or #codex- channels.";
-      if (
-        finalized.Provider === "slack" ||
-        finalized.Surface === "slack" ||
-        finalized.OriginatingChannel === "slack"
-      ) {
-        let target = "";
-        if (sessionEntry?.origin?.from) {
-          const match = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
-          if (match) {
-            target = `channel:${match[1]}`;
-          }
+      if (sessionEntry?.origin?.from) {
+        const originFrom = sessionEntry.origin.from;
+        const platformMatch = originFrom.match(
+          /^(slack|discord|whatsapp|telegram|imessage):(channel:|chat:|user:)?(.+)$/i,
+        );
+        if (platformMatch) {
+          const platform = platformMatch[1].toLowerCase();
+          const targetId = platformMatch[3];
+          const cfg = loadConfig();
+          await routeReply({
+            payload: { text: responseText },
+            channel: platform,
+            to: targetId,
+            cfg,
+          });
+          return { text: "" };
         }
-        if (!target && finalized.GroupChannel) {
-          target = finalized.GroupChannel;
-        }
-        await sendMessageSlack(target, responseText);
-        return { text: "" };
-      } else {
-        return { text: responseText };
       }
+      return { text: responseText };
     }
   }
 
@@ -925,7 +945,7 @@ Now generate the summary for continuing with ${modeLower}:`;
 
         // Extract thread ID from sessionKey
         const threadMatch = sessionKey?.match(/slack:channel:[^:]+:thread:([^:]+)/);
-        const threadId = threadMatch ? threadMatch[1] : null;
+        const _threadId = threadMatch ? threadMatch[1] : null;
 
         if (!channelId) {
           const result = await runOpencodeCommand({
@@ -940,40 +960,17 @@ Now generate the summary for continuing with ${modeLower}:`;
           return { text: result.text, channelData: { responsePrefix } };
         }
 
-        let fullOutput = "";
-        const target = `channel:${channelId}`;
-        const threadOpts = threadId ? { threadTs: threadId } : {};
-
-        const thinkingMsg = await sendMessageSlack(
-          target,
-          `${responsePrefix} 🤔 Thinking...`,
-          threadOpts,
-        );
-        console.log("[OPENCODE] Thinking message ID:", thinkingMsg?.messageId, "channelId:", channelId);
-        if (!thinkingMsg.messageId) {
-          const result = await runOpencodeCommand({
-            message: triggerBodyNormalized,
-            projectDir: sessionEntry.opencodeProjectDir,
-            agent: sessionEntry.opencodeAgent || "plan/build",
-            model: sessionEntry.opencodeModel,
-          });
-          if (result.error) {
-            return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
-          }
-          return { text: result.text, channelData: { responsePrefix } };
-        }
-
-        // Use shared helper for streaming
+        // Use shared helper for streaming (platform-agnostic)
         const streamResult = await streamToIM({
           streamingFn: runOpencodeCommandStreaming,
           message: triggerBodyNormalized,
           projectDir: sessionEntry.opencodeProjectDir,
           agent: sessionEntry.opencodeAgent || "plan/build",
           model: sessionEntry.opencodeModel,
-          sendMessage: sendMessageSlack,
-          editMessage: editSlackMessage,
-          channelId: channelId!,
+          platform: "slack",
+          targetId: channelId,
           responsePrefix: responsePrefix!,
+          cfg,
         });
 
         if (streamResult.error) {
@@ -1042,7 +1039,7 @@ Now generate the summary for continuing with ${modeLower}:`;
         }
 
         const threadMatch = sessionKey?.match(/slack:channel:[^:]+:thread:([^:]+)/);
-        const threadId = threadMatch ? threadMatch[1] : null;
+        const _threadId = threadMatch ? threadMatch[1] : null;
 
         if (!channelId) {
           const result = await runClaudeCodeCommand({
@@ -1057,39 +1054,17 @@ Now generate the summary for continuing with ${modeLower}:`;
           return { text: result.text, channelData: { responsePrefix } };
         }
 
-        let fullOutput = "";
-        const target = `channel:${channelId}`;
-        const threadOpts = threadId ? { threadTs: threadId } : {};
-
-        const thinkingMsg = await sendMessageSlack(
-          target,
-          `${responsePrefix} 🤔 Thinking...`,
-          threadOpts,
-        );
-        if (!thinkingMsg.messageId) {
-          const result = await runClaudeCodeCommand({
-            message: triggerBodyNormalized,
-            projectDir: sessionEntry.claudeCodeProjectDir,
-            agent: sessionEntry.claudeCodeAgent || "build",
-            model: sessionEntry.claudeCodeModel,
-          });
-          if (result.error) {
-            return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
-          }
-          return { text: result.text, channelData: { responsePrefix } };
-        }
-
-        // Use shared helper for streaming
+        // Use shared helper for streaming (platform-agnostic)
         const streamResult = await streamToIM({
           streamingFn: runClaudeCodeCommandStreaming,
           message: triggerBodyNormalized,
           projectDir: sessionEntry.claudeCodeProjectDir,
           agent: sessionEntry.claudeCodeAgent || "build",
           model: sessionEntry.claudeCodeModel,
-          sendMessage: sendMessageSlack,
-          editMessage: editSlackMessage,
-          channelId: channelId!,
+          platform: "slack",
+          targetId: channelId,
           responsePrefix: responsePrefix!,
+          cfg,
         });
 
         if (streamResult.error) {
@@ -1157,7 +1132,7 @@ Now generate the summary for continuing with ${modeLower}:`;
         }
 
         const threadMatch = sessionKey?.match(/slack:channel:[^:]+:thread:([^:]+)/);
-        const threadId = threadMatch ? threadMatch[1] : null;
+        const _threadId = threadMatch ? threadMatch[1] : null;
 
         if (!channelId) {
           const result = await runCodexCommand({
@@ -1172,39 +1147,17 @@ Now generate the summary for continuing with ${modeLower}:`;
           return { text: result.text, channelData: { responsePrefix } };
         }
 
-        let fullOutput = "";
-        const target = `channel:${channelId}`;
-        const threadOpts = threadId ? { threadTs: threadId } : {};
-
-        const thinkingMsg = await sendMessageSlack(
-          target,
-          `${responsePrefix} 🤔 Thinking...`,
-          threadOpts,
-        );
-        if (!thinkingMsg.messageId) {
-          const result = await runCodexCommand({
-            message: triggerBodyNormalized,
-            projectDir: sessionEntry.codexProjectDir,
-            agent: sessionEntry.codexAgent || "build",
-            model: sessionEntry.codexModel,
-          });
-          if (result.error) {
-            return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
-          }
-          return { text: result.text, channelData: { responsePrefix } };
-        }
-
-        // Use shared helper for streaming
+        // Use shared helper for streaming (platform-agnostic)
         const streamResult = await streamToIM({
           streamingFn: runCodexCommandStreaming,
           message: triggerBodyNormalized,
           projectDir: sessionEntry.codexProjectDir,
           agent: sessionEntry.codexAgent || "build",
           model: sessionEntry.codexModel,
-          sendMessage: sendMessageSlack,
-          editMessage: editSlackMessage,
-          channelId: channelId!,
+          platform: "slack",
+          targetId: channelId,
           responsePrefix: responsePrefix!,
+          cfg,
         });
 
         if (streamResult.error) {
