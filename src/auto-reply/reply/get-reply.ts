@@ -23,6 +23,9 @@ import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import {
   runOpencodeCommand,
   runOpencodeCommandStreaming,
+  runClaudeCodeCommand,
+  runClaudeCodeCommandStreaming,
+  runCodexCommand,
   streamToIM,
 } from "./commands-opencode.js";
 import { resolveDefaultModel } from "./directive-handling.js";
@@ -910,39 +913,36 @@ Now generate the summary for continuing with ${modeLower}:`;
       typing.cleanup();
       const responsePrefix = sessionEntry.opencodeResponsePrefix;
 
-      const isSlack =
-        finalized.Provider === "slack" ||
-        finalized.Surface === "slack" ||
-        finalized.OriginatingChannel === "slack";
+      // Detect platform from sessionEntry.origin.from
+      let platform: "slack" | "discord" | "whatsapp" | "telegram" | "imessage" = "slack";
+      let targetId: string | null = null;
 
-      if (isSlack) {
-        // Try multiple sources for channel ID
-        let channelId: string | null = null;
-
-        // 1. Try from sessionEntry.origin.from (most reliable)
-        if (sessionEntry.origin?.from) {
-          const match = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
-          if (match) {
-            channelId = match[1].toUpperCase();
-          }
+      if (sessionEntry?.origin?.from) {
+        const platformMatch = sessionEntry.origin.from.match(
+          /^(slack|discord|whatsapp|telegram|imessage):(channel:|chat:|user:)?(.+)$/i,
+        );
+        if (platformMatch) {
+          platform = platformMatch[1].toLowerCase() as typeof platform;
+          targetId = platformMatch[3];
         }
+      }
 
-        // 2. Try from sessionEntry.origin.to
-        if (!channelId && sessionEntry.origin?.to) {
-          const match = sessionEntry.origin.to.match(/channel:([^:]+)/i);
-          if (match) {
-            channelId = match[1].toUpperCase();
-          }
+      // Fallback: try to get channel ID for Slack
+      let channelId: string | null = targetId;
+      if (!channelId && sessionEntry?.origin?.to) {
+        const match = sessionEntry.origin.to.match(/channel:([^:]+)/i);
+        if (match) {
+          channelId = match[1].toUpperCase();
         }
-
-        // 3. Fallback to sessionKey parsing
-        if (!channelId) {
-          const channelMatch = sessionKey?.match(/slack:channel:([^:]+)/i);
-          if (channelMatch) {
-            channelId = channelMatch[1].toUpperCase();
-          }
+      }
+      if (!channelId) {
+        const channelMatch = sessionKey?.match(/slack:channel:([^:]+)/i);
+        if (channelMatch) {
+          channelId = channelMatch[1].toUpperCase();
         }
+      }
 
+      if (channelId) {
         // Extract thread ID from sessionKey
         const threadMatch = sessionKey?.match(/slack:channel:[^:]+:thread:([^:]+)/);
         const _threadId = threadMatch ? threadMatch[1] : null;
@@ -967,8 +967,8 @@ Now generate the summary for continuing with ${modeLower}:`;
           projectDir: sessionEntry.opencodeProjectDir,
           agent: sessionEntry.opencodeAgent || "plan/build",
           model: sessionEntry.opencodeModel,
-          platform: "slack",
-          targetId: channelId,
+          platform,
+          targetId: targetId || channelId,
           responsePrefix: responsePrefix!,
           cfg,
         });
@@ -1006,54 +1006,36 @@ Now generate the summary for continuing with ${modeLower}:`;
       typing.cleanup();
       const responsePrefix = sessionEntry.claudeCodeResponsePrefix;
 
-      const isSlack =
-        finalized.Provider === "slack" ||
-        finalized.Surface === "slack" ||
-        finalized.OriginatingChannel === "slack";
+      // Detect platform from sessionEntry.origin.from
+      let platform: "slack" | "discord" | "whatsapp" | "telegram" | "imessage" = "slack";
+      let targetId: string | null = null;
 
-      const { runClaudeCodeCommand, runClaudeCodeCommandStreaming } =
-        await import("./commands-opencode.js");
-
-      if (isSlack) {
-        let channelId: string | null = null;
-
-        if (sessionEntry.origin?.from) {
-          const match = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
-          if (match) {
-            channelId = match[1].toUpperCase();
-          }
+      if (sessionEntry?.origin?.from) {
+        const platformMatch = sessionEntry.origin.from.match(
+          /^(slack|discord|whatsapp|telegram|imessage):(channel:|chat:|user:)?(.+)$/i,
+        );
+        if (platformMatch) {
+          platform = platformMatch[1].toLowerCase() as typeof platform;
+          targetId = platformMatch[3];
         }
+      }
 
-        if (!channelId && sessionEntry.origin?.to) {
-          const match = sessionEntry.origin.to.match(/channel:([^:]+)/i);
-          if (match) {
-            channelId = match[1].toUpperCase();
-          }
+      // Fallback: try to get channel ID for Slack
+      let channelId: string | null = targetId;
+      if (!channelId && sessionEntry?.origin?.to) {
+        const match = sessionEntry.origin.to.match(/channel:([^:]+)/i);
+        if (match) {
+          channelId = match[1].toUpperCase();
         }
-
-        if (!channelId) {
-          const channelMatch = sessionKey?.match(/slack:channel:([^:]+)/i);
-          if (channelMatch) {
-            channelId = channelMatch[1].toUpperCase();
-          }
+      }
+      if (!channelId) {
+        const channelMatch = sessionKey?.match(/slack:channel:([^:]+)/i);
+        if (channelMatch) {
+          channelId = channelMatch[1].toUpperCase();
         }
+      }
 
-        const threadMatch = sessionKey?.match(/slack:channel:[^:]+:thread:([^:]+)/);
-        const _threadId = threadMatch ? threadMatch[1] : null;
-
-        if (!channelId) {
-          const result = await runClaudeCodeCommand({
-            message: triggerBodyNormalized,
-            projectDir: sessionEntry.claudeCodeProjectDir,
-            agent: sessionEntry.claudeCodeAgent || "build",
-            model: sessionEntry.claudeCodeModel,
-          });
-          if (result.error) {
-            return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
-          }
-          return { text: result.text, channelData: { responsePrefix } };
-        }
-
+      if (channelId) {
         // Use shared helper for streaming (platform-agnostic)
         const streamResult = await streamToIM({
           streamingFn: runClaudeCodeCommandStreaming,
@@ -1061,8 +1043,8 @@ Now generate the summary for continuing with ${modeLower}:`;
           projectDir: sessionEntry.claudeCodeProjectDir,
           agent: sessionEntry.claudeCodeAgent || "build",
           model: sessionEntry.claudeCodeModel,
-          platform: "slack",
-          targetId: channelId,
+          platform,
+          targetId: targetId || channelId || "",
           responsePrefix: responsePrefix!,
           cfg,
         });
@@ -1100,53 +1082,41 @@ Now generate the summary for continuing with ${modeLower}:`;
       typing.cleanup();
       const responsePrefix = sessionEntry.codexResponsePrefix;
 
-      const isSlack =
-        finalized.Provider === "slack" ||
-        finalized.Surface === "slack" ||
-        finalized.OriginatingChannel === "slack";
+      const { runCodexCommandStreaming } = await import("./commands-opencode.js");
 
-      const { runCodexCommand, runCodexCommandStreaming } = await import("./commands-opencode.js");
+      // Detect platform from sessionEntry.origin.from
+      let platform: "slack" | "discord" | "whatsapp" | "telegram" | "imessage" = "slack";
+      let targetId: string | null = null;
 
-      if (isSlack) {
-        let channelId: string | null = null;
-
-        if (sessionEntry.origin?.from) {
-          const match = sessionEntry.origin.from.match(/slack:channel:([^:]+)/i);
-          if (match) {
-            channelId = match[1].toUpperCase();
-          }
+      if (sessionEntry?.origin?.from) {
+        const platformMatch = sessionEntry.origin.from.match(
+          /^(slack|discord|whatsapp|telegram|imessage):(channel:|chat:|user:)?(.+)$/i,
+        );
+        if (platformMatch) {
+          platform = platformMatch[1].toLowerCase() as typeof platform;
+          targetId = platformMatch[3];
         }
+      }
 
-        if (!channelId && sessionEntry.origin?.to) {
-          const match = sessionEntry.origin.to.match(/channel:([^:]+)/i);
-          if (match) {
-            channelId = match[1].toUpperCase();
-          }
+      // Fallback: try to get channel ID for Slack
+      let channelId: string | null = targetId;
+      if (!channelId && sessionEntry?.origin?.to) {
+        const match = sessionEntry.origin.to.match(/channel:([^:]+)/i);
+        if (match) {
+          channelId = match[1].toUpperCase();
         }
-
-        if (!channelId) {
-          const channelMatch = sessionKey?.match(/slack:channel:([^:]+)/i);
-          if (channelMatch) {
-            channelId = channelMatch[1].toUpperCase();
-          }
+      }
+      if (!channelId) {
+        const channelMatch = sessionKey?.match(/slack:channel:([^:]+)/i);
+        if (channelMatch) {
+          channelId = channelMatch[1].toUpperCase();
         }
+      }
 
-        const threadMatch = sessionKey?.match(/slack:channel:[^:]+:thread:([^:]+)/);
-        const _threadId = threadMatch ? threadMatch[1] : null;
+      const threadMatch = sessionKey?.match(/slack:channel:[^:]+:thread:([^:]+)/);
+      const _threadId = threadMatch ? threadMatch[1] : null;
 
-        if (!channelId) {
-          const result = await runCodexCommand({
-            message: triggerBodyNormalized,
-            projectDir: sessionEntry.codexProjectDir,
-            agent: sessionEntry.codexAgent || "build",
-            model: sessionEntry.codexModel,
-          });
-          if (result.error) {
-            return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
-          }
-          return { text: result.text, channelData: { responsePrefix } };
-        }
-
+      if (channelId) {
         // Use shared helper for streaming (platform-agnostic)
         const streamResult = await streamToIM({
           streamingFn: runCodexCommandStreaming,
@@ -1154,8 +1124,8 @@ Now generate the summary for continuing with ${modeLower}:`;
           projectDir: sessionEntry.codexProjectDir,
           agent: sessionEntry.codexAgent || "build",
           model: sessionEntry.codexModel,
-          platform: "slack",
-          targetId: channelId,
+          platform,
+          targetId: targetId || channelId || "",
           responsePrefix: responsePrefix!,
           cfg,
         });
