@@ -103,14 +103,14 @@ export async function streamToIM(params: {
   }
 
   // Separate targets for send vs edit - Slack/Discord need prefix for send but NOT for edit
-  // Telegram: use the raw targetId as-is (can be numeric ID or username)
+  // Telegram: strip group:/chat:/user: prefixes, expect just numeric ID or username
   const sendTarget =
     platform === "slack" || platform === "discord"
       ? `channel:${targetId}`
       : platform === "telegram"
-        ? targetId // Telegram expects numeric ID or username directly
+        ? targetId.replace(/^(group:|chat:|user:)/, "")
         : targetId;
-  const editTarget = targetId; // Edit functions don't need the channel: prefix
+  const editTarget = targetId.replace(/^(group:|chat:|user:)/, ""); // Edit also needs clean ID
 
   console.log(
     "[STREAM_DEBUG] platform:",
