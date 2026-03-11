@@ -288,14 +288,14 @@
 
 To add new models for users to choose from, add entries to the model catalog files in `src/agents/`:
 
-| Provider | File | Catalog Variable |
-|----------|------|------------------|
-| synthetic | `src/agents/synthetic-models.ts` | `SYNTHETIC_MODEL_CATALOG` |
-| together | `src/agents/together-models.ts` | `TOGETHER_MODEL_CATALOG` |
-| doubao/volcengine | `src/agents/doubao-models.ts` | `DOUBAO_MODEL_CATALOG`, `DOUBAO_CODING_MODEL_CATALOG` |
-| byteplus | `src/agents/byteplus-models.ts` | `BYTEPLUS_MODEL_CATALOG`, `BYTEPLUS_CODING_MODEL_CATALOG` |
-| venice | `src/agents/venice-models.ts` | `VENICE_MODEL_CATALOG` |
-| huggingface | `src/agents/huggingface-models.ts` | `HUGGINGFACE_MODEL_CATALOG` |
+| Provider          | File                               | Catalog Variable                                          |
+| ----------------- | ---------------------------------- | --------------------------------------------------------- |
+| synthetic         | `src/agents/synthetic-models.ts`   | `SYNTHETIC_MODEL_CATALOG`                                 |
+| together          | `src/agents/together-models.ts`    | `TOGETHER_MODEL_CATALOG`                                  |
+| doubao/volcengine | `src/agents/doubao-models.ts`      | `DOUBAO_MODEL_CATALOG`, `DOUBAO_CODING_MODEL_CATALOG`     |
+| byteplus          | `src/agents/byteplus-models.ts`    | `BYTEPLUS_MODEL_CATALOG`, `BYTEPLUS_CODING_MODEL_CATALOG` |
+| venice            | `src/agents/venice-models.ts`      | `VENICE_MODEL_CATALOG`                                    |
+| huggingface       | `src/agents/huggingface-models.ts` | `HUGGINGFACE_MODEL_CATALOG`                               |
 
 ### Model Entry Format
 

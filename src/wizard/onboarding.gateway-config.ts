@@ -56,7 +56,7 @@ export async function configureGatewayForOnboarding(
   let { nextConfig } = opts;
 
   const port =
-    flow === "quickstart"
+    flow === "quickstart" || flow === "minimal"
       ? quickstartGateway.port
       : Number.parseInt(
           String(
@@ -70,7 +70,7 @@ export async function configureGatewayForOnboarding(
         );
 
   let bind: GatewayWizardSettings["bind"] =
-    flow === "quickstart"
+    flow === "quickstart" || flow === "minimal"
       ? quickstartGateway.bind
       : await prompter.select<GatewayWizardSettings["bind"]>({
           message: "Gateway bind",
@@ -85,7 +85,7 @@ export async function configureGatewayForOnboarding(
 
   let customBindHost = quickstartGateway.customBindHost;
   if (bind === "custom") {
-    const needsPrompt = flow !== "quickstart" || !customBindHost;
+    const needsPrompt = (flow !== "quickstart" && flow !== "minimal") || !customBindHost;
     if (needsPrompt) {
       const input = await prompter.text({
         message: "Custom IP address",
@@ -98,7 +98,7 @@ export async function configureGatewayForOnboarding(
   }
 
   let authMode =
-    flow === "quickstart"
+    flow === "quickstart" || flow === "minimal"
       ? quickstartGateway.authMode
       : ((await prompter.select({
           message: "Gateway auth",
@@ -114,7 +114,7 @@ export async function configureGatewayForOnboarding(
         })) as GatewayAuthChoice);
 
   const tailscaleMode: GatewayWizardSettings["tailscaleMode"] =
-    flow === "quickstart"
+    flow === "quickstart" || flow === "minimal"
       ? quickstartGateway.tailscaleMode
       : await prompter.select<GatewayWizardSettings["tailscaleMode"]>({
           message: "Tailscale exposure",
@@ -129,8 +129,9 @@ export async function configureGatewayForOnboarding(
     }
   }
 
-  let tailscaleResetOnExit = flow === "quickstart" ? quickstartGateway.tailscaleResetOnExit : false;
-  if (tailscaleMode !== "off" && flow !== "quickstart") {
+  let tailscaleResetOnExit =
+    flow === "quickstart" || flow === "minimal" ? quickstartGateway.tailscaleResetOnExit : false;
+  if (tailscaleMode !== "off" && flow !== "quickstart" && flow !== "minimal") {
     await prompter.note(TAILSCALE_DOCS_LINES.join("\n"), "Tailscale");
     tailscaleResetOnExit = Boolean(
       await prompter.confirm({
@@ -156,7 +157,7 @@ export async function configureGatewayForOnboarding(
 
   let gatewayToken: string | undefined;
   if (authMode === "token") {
-    if (flow === "quickstart") {
+    if (flow === "quickstart" || flow === "minimal") {
       gatewayToken = quickstartGateway.token ?? randomToken();
     } else {
       const tokenInput = await prompter.text({
@@ -170,7 +171,7 @@ export async function configureGatewayForOnboarding(
 
   if (authMode === "password") {
     const password =
-      flow === "quickstart" && quickstartGateway.password
+      (flow === "quickstart" || flow === "minimal") && quickstartGateway.password
         ? quickstartGateway.password
         : await prompter.text({
             message: "Gateway password",

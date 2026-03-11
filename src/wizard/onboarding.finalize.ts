@@ -92,7 +92,7 @@ export async function finalizeOnboardingWizard(
     installDaemon = explicitInstallDaemon;
   } else if (process.platform === "linux" && !systemdAvailable) {
     installDaemon = false;
-  } else if (flow === "quickstart") {
+  } else if (flow === "quickstart" || flow === "minimal") {
     installDaemon = true;
   } else {
     installDaemon = await prompter.confirm({
@@ -111,7 +111,7 @@ export async function finalizeOnboardingWizard(
 
   if (installDaemon) {
     const daemonRuntime =
-      flow === "quickstart"
+      flow === "quickstart" || flow === "minimal"
         ? DEFAULT_GATEWAY_DAEMON_RUNTIME
         : await prompter.select({
             message: "Gateway service runtime",
@@ -318,62 +318,70 @@ export async function finalizeOnboardingWizard(
       "Token",
     );
 
-    hatchChoice = await prompter.select({
-      message: "How do you want to hatch your bot?",
-      options: [
-        { value: "tui", label: "Hatch in TUI (recommended)" },
-        { value: "web", label: "Open the Web UI" },
-        { value: "later", label: "Do this later" },
-      ],
-      initialValue: "tui",
-    });
-
-    if (hatchChoice === "tui") {
-      restoreTerminalState("pre-onboarding tui", { resumeStdinIfPaused: true });
-      await runTui({
-        url: links.wsUrl,
-        token: settings.authMode === "token" ? settings.gatewayToken : undefined,
-        password: settings.authMode === "password" ? nextConfig.gateway?.auth?.password : "",
-        // Safety: onboarding TUI should not auto-deliver to lastProvider/lastTo.
-        deliver: false,
-        message: hasBootstrap ? "Wake up, my friend!" : undefined,
+    if (flow === "minimal") {
+      hatchChoice = "later";
+      await prompter.note(
+        `When you're ready: ${formatCliCommand("openclaw dashboard --no-open")}`,
+        "Later",
+      );
+    } else {
+      hatchChoice = await prompter.select({
+        message: "How do you want to hatch your bot?",
+        options: [
+          { value: "tui", label: "Hatch in TUI (recommended)" },
+          { value: "web", label: "Open the Web UI" },
+          { value: "later", label: "Do this later" },
+        ],
+        initialValue: "tui",
       });
-      launchedTui = true;
-    } else if (hatchChoice === "web") {
-      const browserSupport = await detectBrowserOpenSupport();
-      if (browserSupport.ok) {
-        controlUiOpened = await openUrl(authedUrl);
-        if (!controlUiOpened) {
+
+      if (hatchChoice === "tui") {
+        restoreTerminalState("pre-onboarding tui", { resumeStdinIfPaused: true });
+        await runTui({
+          url: links.wsUrl,
+          token: settings.authMode === "token" ? settings.gatewayToken : undefined,
+          password: settings.authMode === "password" ? nextConfig.gateway?.auth?.password : "",
+          // Safety: onboarding TUI should not auto-deliver to lastProvider/lastTo.
+          deliver: false,
+          message: hasBootstrap ? "Wake up, my friend!" : undefined,
+        });
+        launchedTui = true;
+      } else if (hatchChoice === "web") {
+        const browserSupport = await detectBrowserOpenSupport();
+        if (browserSupport.ok) {
+          controlUiOpened = await openUrl(authedUrl);
+          if (!controlUiOpened) {
+            controlUiOpenHint = formatControlUiSshHint({
+              port: settings.port,
+              basePath: controlUiBasePath,
+              token: settings.authMode === "token" ? settings.gatewayToken : undefined,
+            });
+          }
+        } else {
           controlUiOpenHint = formatControlUiSshHint({
             port: settings.port,
             basePath: controlUiBasePath,
             token: settings.authMode === "token" ? settings.gatewayToken : undefined,
           });
         }
+        await prompter.note(
+          [
+            `Dashboard link (with token): ${authedUrl}`,
+            controlUiOpened
+              ? "Opened in your browser. Keep that tab to control OpenClaw."
+              : "Copy/paste this URL in a browser on this machine to control OpenClaw.",
+            controlUiOpenHint,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          "Dashboard ready",
+        );
       } else {
-        controlUiOpenHint = formatControlUiSshHint({
-          port: settings.port,
-          basePath: controlUiBasePath,
-          token: settings.authMode === "token" ? settings.gatewayToken : undefined,
-        });
+        await prompter.note(
+          `When you're ready: ${formatCliCommand("openclaw dashboard --no-open")}`,
+          "Later",
+        );
       }
-      await prompter.note(
-        [
-          `Dashboard link (with token): ${authedUrl}`,
-          controlUiOpened
-            ? "Opened in your browser. Keep that tab to control OpenClaw."
-            : "Copy/paste this URL in a browser on this machine to control OpenClaw.",
-          controlUiOpenHint,
-        ]
-          .filter(Boolean)
-          .join("\n"),
-        "Dashboard ready",
-      );
-    } else {
-      await prompter.note(
-        `When you're ready: ${formatCliCommand("openclaw dashboard --no-open")}`,
-        "Later",
-      );
     }
   } else if (opts.skipUi) {
     await prompter.note("Skipping Control UI/TUI prompts.", "Control UI");

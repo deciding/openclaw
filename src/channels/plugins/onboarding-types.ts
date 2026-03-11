@@ -19,6 +19,7 @@ export type SetupChannelsOptions = {
   skipDmPolicyPrompt?: boolean;
   skipConfirm?: boolean;
   quickstartDefaults?: boolean;
+  minimalMode?: boolean;
   initialSelection?: ChannelId[];
 };
 

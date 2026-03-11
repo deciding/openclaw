@@ -75,7 +75,7 @@ export async function setupOnboardingShellCompletion(params: {
   if (!completionStatus.profileInstalled) {
     // Case 3: No completion at all
     const shouldInstall =
-      params.flow === "quickstart"
+      params.flow === "quickstart" || params.flow === "minimal"
         ? true
         : await params.prompter.confirm({
             message: `Enable ${completionStatus.shell} shell completion for ${cliName}?`,

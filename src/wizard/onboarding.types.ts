@@ -1,6 +1,6 @@
 import type { GatewayAuthChoice } from "../commands/onboard-types.js";
 
-export type WizardFlow = "quickstart" | "advanced";
+export type WizardFlow = "quickstart" | "advanced" | "minimal";
 
 export type QuickstartGatewayDefaults = {
   hasExisting: boolean;

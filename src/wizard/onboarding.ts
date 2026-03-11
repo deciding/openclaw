@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import { installSkill } from "../agents/skills-install.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import type {
   GatewayAuthChoice,
@@ -95,19 +98,23 @@ export async function runOnboardingWizard(
 
   const quickstartHint = `Configure details later via ${formatCliCommand("openclaw configure")}.`;
   const manualHint = "Configure port, network, Tailscale, and auth options.";
+  const minimalHint = "Provider + API key + messaging app only. Auto-installs skills and hooks.";
   const explicitFlowRaw = opts.flow?.trim();
   const normalizedExplicitFlow = explicitFlowRaw === "manual" ? "advanced" : explicitFlowRaw;
   if (
     normalizedExplicitFlow &&
     normalizedExplicitFlow !== "quickstart" &&
-    normalizedExplicitFlow !== "advanced"
+    normalizedExplicitFlow !== "advanced" &&
+    normalizedExplicitFlow !== "minimal"
   ) {
-    runtime.error("Invalid --flow (use quickstart, manual, or advanced).");
+    runtime.error("Invalid --flow (use quickstart, manual, advanced, or minimal).");
     runtime.exit(1);
     return;
   }
   const explicitFlow: WizardFlow | undefined =
-    normalizedExplicitFlow === "quickstart" || normalizedExplicitFlow === "advanced"
+    normalizedExplicitFlow === "quickstart" ||
+    normalizedExplicitFlow === "advanced" ||
+    normalizedExplicitFlow === "minimal"
       ? normalizedExplicitFlow
       : undefined;
   let flow: WizardFlow =
@@ -115,21 +122,25 @@ export async function runOnboardingWizard(
     (await prompter.select({
       message: "Onboarding mode",
       options: [
+        { value: "minimal", label: "Extra QuickStart", hint: minimalHint },
         { value: "quickstart", label: "QuickStart", hint: quickstartHint },
         { value: "advanced", label: "Manual", hint: manualHint },
       ],
-      initialValue: "quickstart",
+      initialValue: "minimal",
     }));
 
-  if (opts.mode === "remote" && flow === "quickstart") {
+  if (opts.mode === "remote" && (flow === "quickstart" || flow === "minimal")) {
     await prompter.note(
-      "QuickStart only supports local gateways. Switching to Manual mode.",
-      "QuickStart",
+      "Extra QuickStart/QuickStart only supports local gateways. Switching to Manual mode.",
+      "Gateway Mode",
     );
     flow = "advanced";
   }
 
-  if (snapshot.exists) {
+  // For minimal flow, skip config handling prompt - always use existing or defaults
+  if (flow === "minimal") {
+    // Skip to workspace setup - use default workspace
+  } else if (snapshot.exists) {
     await prompter.note(
       onboardHelpers.summarizeExistingConfig(baseConfig),
       "Existing config detected",
@@ -164,6 +175,11 @@ export async function runOnboardingWizard(
       await onboardHelpers.handleReset(resetScope, resolveUserPath(workspaceDefault), runtime);
       baseConfig = {};
     }
+  }
+
+  // For minimal flow, skip config handling - always use defaults
+  if (flow === "minimal") {
+    // Skip to workspace setup - use default workspace
   }
 
   const quickstartGateway: QuickstartGatewayDefaults = (() => {
@@ -217,7 +233,7 @@ export async function runOnboardingWizard(
     };
   })();
 
-  if (flow === "quickstart") {
+  if (flow === "quickstart" || flow === "minimal") {
     const formatBind = (value: "loopback" | "lan" | "auto" | "custom" | "tailnet") => {
       if (value === "loopback") {
         return "Loopback (127.0.0.1)";
@@ -287,7 +303,7 @@ export async function runOnboardingWizard(
 
   const mode =
     opts.mode ??
-    (flow === "quickstart"
+    (flow === "quickstart" || flow === "minimal"
       ? "local"
       : ((await prompter.select({
           message: "What do you want to set up?",
@@ -324,7 +340,7 @@ export async function runOnboardingWizard(
 
   const workspaceInput =
     opts.workspace ??
-    (flow === "quickstart"
+    (flow === "quickstart" || flow === "minimal"
       ? (baseConfig.agents?.defaults?.workspace ?? onboardHelpers.DEFAULT_WORKSPACE)
       : await prompter.text({
           message: "Workspace directory",
@@ -415,7 +431,7 @@ export async function runOnboardingWizard(
     const { listChannelPlugins } = await import("../channels/plugins/index.js");
     const { setupChannels } = await import("../commands/onboard-channels.js");
     const quickstartAllowFromChannels =
-      flow === "quickstart"
+      flow === "quickstart" || flow === "minimal"
         ? listChannelPlugins()
             .filter((plugin) => plugin.meta.quickstartAllowFrom)
             .map((plugin) => plugin.id)
@@ -423,9 +439,10 @@ export async function runOnboardingWizard(
     nextConfig = await setupChannels(nextConfig, runtime, prompter, {
       allowSignalInstall: true,
       forceAllowFromChannels: quickstartAllowFromChannels,
-      skipDmPolicyPrompt: flow === "quickstart",
-      skipConfirm: flow === "quickstart",
-      quickstartDefaults: flow === "quickstart",
+      skipDmPolicyPrompt: flow === "quickstart" || flow === "minimal",
+      skipConfirm: flow === "quickstart" || flow === "minimal",
+      quickstartDefaults: flow === "quickstart" || flow === "minimal",
+      minimalMode: flow === "minimal",
     });
   }
 
@@ -436,16 +453,77 @@ export async function runOnboardingWizard(
     skipBootstrap: Boolean(nextConfig.agents?.defaults?.skipBootstrap),
   });
 
-  if (opts.skipSkills) {
+  if (flow === "minimal") {
+    await prompter.note("Installing default skills and dependencies...", "Minimal Setup");
+    const workspaceSkillsDir = path.join(workspaceDir, "skills");
+    if (!fs.existsSync(workspaceSkillsDir)) {
+      fs.mkdirSync(workspaceSkillsDir, { recursive: true });
+    }
+
+    const bundledSkillsDir = path.resolve(process.cwd(), "skills");
+    const skillsToCopy = ["web-search-free", "multi-search-engine"];
+    for (const skillName of skillsToCopy) {
+      const srcDir = path.join(bundledSkillsDir, skillName);
+      const destDir = path.join(workspaceSkillsDir, skillName);
+      if (fs.existsSync(srcDir) && !fs.existsSync(destDir)) {
+        fs.cpSync(srcDir, destDir, { recursive: true });
+      }
+    }
+
+    const depsToInstall = [
+      { name: "mcporter", installId: "npm", skillName: "web-search-free" },
+      { name: "github", installId: "brew", skillName: "multi-search-engine" },
+      { name: "summarize", installId: "brew", skillName: "multi-search-engine" },
+    ];
+    for (const dep of depsToInstall) {
+      try {
+        await installSkill({
+          workspaceDir,
+          skillName: dep.skillName,
+          installId: dep.installId,
+          timeoutMs: 120000,
+          config: nextConfig,
+        });
+      } catch {
+        // Continue even if install fails - user can install manually
+      }
+    }
+
+    const minimalHooks = ["boot-md", "session-memory", "command-logger"];
+    const entries: Record<string, { enabled: boolean }> = {};
+    for (const hookName of minimalHooks) {
+      entries[hookName] = { enabled: true };
+    }
+    nextConfig = {
+      ...nextConfig,
+      hooks: {
+        ...nextConfig.hooks,
+        internal: {
+          enabled: true,
+          entries,
+        },
+      },
+    };
+    await prompter.note(`Auto-enabled hooks: ${minimalHooks.join(", ")}`, "Minimal Setup");
+    await prompter.note(
+      [
+        "Place your code/projects under the workspace directory.",
+        `Your workspace is at: ${workspaceDir}`,
+        "The $WORKSPACE environment variable resolves to this path.",
+      ].join("\n"),
+      "Workspace",
+    );
+  } else if (opts.skipSkills) {
     await prompter.note("Skipping skills setup.", "Skills");
   } else {
     const { setupSkills } = await import("../commands/onboard-skills.js");
     nextConfig = await setupSkills(nextConfig, workspaceDir, runtime, prompter);
   }
 
-  // Setup hooks (session memory on /new)
-  const { setupInternalHooks } = await import("../commands/onboard-hooks.js");
-  nextConfig = await setupInternalHooks(nextConfig, runtime, prompter);
+  if (flow !== "minimal") {
+    const { setupInternalHooks } = await import("../commands/onboard-hooks.js");
+    nextConfig = await setupInternalHooks(nextConfig, runtime, prompter);
+  }
 
   nextConfig = onboardHelpers.applyWizardMetadata(nextConfig, { command: "onboard", mode });
   await writeConfigFile(nextConfig);
