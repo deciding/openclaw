@@ -11,6 +11,7 @@ import type { SessionEntry } from "../../config/sessions.js";
 import { updateSessionStore } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
 import { runCommandWithTimeout } from "../../process/exec.js";
+import { killProcessTree } from "../../process/kill-tree.js";
 import { resolveSlackAccount } from "../../slack/accounts.js";
 import type { ReplyPayload } from "../types.js";
 import type { CommandHandler } from "./commands-types.js";
@@ -20,13 +21,36 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_OPENCODE_AGENT = "build";
 const OPENCODE_TIMEOUT_MS = 300_000;
 
+const activeSubprocesses = new Map<string, number>();
+
 type StreamingFn = (params: {
   message: string;
   projectDir: string;
   agent: string;
   model?: string;
+  targetId?: string;
   onChunk: (chunk: string) => void | Promise<void>;
 }) => Promise<{ error?: string }>;
+
+export async function handleStopCommand(params: {
+  targetId?: string;
+}): Promise<{ text: string; shouldContinue: boolean }> {
+  const targetId = params.targetId;
+  const pid = targetId ? activeSubprocesses.get(targetId) : undefined;
+
+  if (pid && targetId) {
+    killProcessTree(pid);
+    activeSubprocesses.delete(targetId);
+    return {
+      text: `🛑 Stopped subprocess (PID ${pid})`,
+      shouldContinue: false,
+    };
+  }
+  return {
+    text: "No running subprocess to stop.",
+    shouldContinue: false,
+  };
+}
 
 export async function streamToIM(params: {
   streamingFn: StreamingFn;
@@ -137,6 +161,7 @@ export async function streamToIM(params: {
       projectDir,
       agent,
       model,
+      targetId,
       onChunk: async (chunk: string) => {
         if (canEdit && lastSent.length + chunk.length <= charLimit) {
           // Has edit capability and fits - update existing message
@@ -171,6 +196,9 @@ export async function streamToIM(params: {
       await editFn!(editTarget, lastMessageId, `${responsePrefix}\n${lastSent}`);
     }
   }
+
+  // Wait for final edit to complete before sending Done (prevents race condition)
+  await new Promise((r) => setTimeout(r, 500));
 
   // Send completion notification (new message - triggers notification)
   await sendFn(sendTarget, `✅ Done`, {});
@@ -359,7 +387,7 @@ async function persistSessionEntry(params: Parameters<CommandHandler>[0]): Promi
 }
 
 function parseOpencodeCommand(body: string): {
-  action: "enter" | "switch" | "model" | "exit" | "plan" | "build" | null;
+  action: "enter" | "switch" | "model" | "exit" | "plan" | "build" | "stop" | null;
   value: string;
 } {
   const normalized = body.trim();
@@ -384,6 +412,10 @@ function parseOpencodeCommand(body: string): {
 
   if (firstPart === "exit") {
     return { action: "exit", value: "" };
+  }
+
+  if (firstPart === "stop") {
+    return { action: "stop", value: "" };
   }
 
   if (firstPart === "switch") {
@@ -477,6 +509,24 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
       reply: {
         text: "🚪 Exited coding mode. Messages will now go to the normal OpenClaw agent.",
       },
+    };
+  }
+
+  if (parsed.action === "stop") {
+    const targetId = params.sessionKey;
+    const pid = targetId ? activeSubprocesses.get(targetId) : undefined;
+
+    if (pid && targetId) {
+      killProcessTree(pid);
+      activeSubprocesses.delete(targetId);
+      return {
+        shouldContinue: false,
+        reply: { text: `🛑 Stopped subprocess (PID ${pid})` },
+      };
+    }
+    return {
+      shouldContinue: false,
+      reply: { text: "No running subprocess to stop." },
     };
   }
 
@@ -651,6 +701,7 @@ export async function runOpencodeCommandStreaming(params: {
   projectDir: string;
   agent: string;
   model?: string;
+  targetId?: string;
   onChunk: (chunk: string) => void;
 }): Promise<{ error?: string }> {
   const opencodePath = await findOpencodeBinary();
@@ -666,6 +717,10 @@ export async function runOpencodeCommandStreaming(params: {
       cwd: params.projectDir,
       stdio: ["ignore", "pipe", "pipe"],
     });
+
+    if (params.targetId && child.pid) {
+      activeSubprocesses.set(params.targetId, child.pid);
+    }
 
     let stdout = "";
     let stderr = "";
@@ -684,12 +739,18 @@ export async function runOpencodeCommandStreaming(params: {
 
     child.on("error", (err) => {
       clearTimeout(timeout);
+      if (params.targetId) {
+        activeSubprocesses.delete(params.targetId);
+      }
       params.onChunk(`\n❌ Error: ${err.message}`);
       resolve({ error: err.message });
     });
 
     child.on("close", (code) => {
       clearTimeout(timeout);
+      if (params.targetId) {
+        activeSubprocesses.delete(params.targetId);
+      }
       if (code !== 0 && stderr) {
         params.onChunk(`\n⚠️ ${stderr}`);
         resolve({ error: stderr });
@@ -1126,6 +1187,7 @@ export async function runClaudeCodeCommandStreaming(params: {
   projectDir: string;
   agent?: string;
   model?: string;
+  targetId?: string;
   onChunk: (chunk: string) => void;
 }): Promise<{ error?: string }> {
   const claudePath = await findClaudeCodeBinary();
@@ -1147,6 +1209,10 @@ export async function runClaudeCodeCommandStreaming(params: {
       cwd: params.projectDir,
       stdio: ["ignore", "pipe", "pipe"],
     });
+
+    if (params.targetId && child.pid) {
+      activeSubprocesses.set(params.targetId, child.pid);
+    }
 
     let stdout = "";
     let stderr = "";
@@ -1194,12 +1260,18 @@ export async function runClaudeCodeCommandStreaming(params: {
 
     child.on("error", (err) => {
       clearTimeout(timeout);
+      if (params.targetId) {
+        activeSubprocesses.delete(params.targetId);
+      }
       params.onChunk(`\n❌ Error: ${err.message}`);
       resolve({ error: err.message });
     });
 
     child.on("close", (code) => {
       clearTimeout(timeout);
+      if (params.targetId) {
+        activeSubprocesses.delete(params.targetId);
+      }
       if (code !== 0 && stderr) {
         params.onChunk(`\n⚠️ ${stderr}`);
         resolve({ error: stderr });
@@ -1264,6 +1336,7 @@ export async function runCodexCommandStreaming(params: {
   projectDir: string;
   agent?: string;
   model?: string;
+  targetId?: string;
   onChunk: (chunk: string) => void;
 }): Promise<{ error?: string }> {
   const codexPath = await findCodexBinary();
@@ -1292,6 +1365,10 @@ export async function runCodexCommandStreaming(params: {
       stdio: ["ignore", "pipe", "pipe"],
     });
 
+    if (params.targetId && child.pid) {
+      activeSubprocesses.set(params.targetId, child.pid);
+    }
+
     let stdout = "";
     let stderr = "";
 
@@ -1316,12 +1393,18 @@ export async function runCodexCommandStreaming(params: {
 
     child.on("error", (err) => {
       clearTimeout(timeout);
+      if (params.targetId) {
+        activeSubprocesses.delete(params.targetId);
+      }
       params.onChunk(`\n❌ Error: ${err.message}`);
       resolve({ error: err.message });
     });
 
     child.on("close", (code) => {
       clearTimeout(timeout);
+      if (params.targetId) {
+        activeSubprocesses.delete(params.targetId);
+      }
       // Output final stdout message (the actual result)
       if (stdout) {
         params.onChunk(stdout);

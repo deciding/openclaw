@@ -801,6 +801,29 @@ Now generate the summary for continuing with ${modeLower}:`;
     }
   }
 
+  // Check for !stop command - stop running subprocess
+  const isStopCommand = /^!stop(\s|$)/i.test(trimmedBody);
+  if (isStopCommand) {
+    typing.cleanup();
+
+    // Compute targetId using same logic as streamToIM
+    let stopTargetId: string | null = null;
+    if (sessionEntry?.origin?.from) {
+      const platformMatch = sessionEntry.origin.from.match(
+        /^(slack|discord|whatsapp|telegram|imessage):(channel:|chat:|user:)?(.+)$/i,
+      );
+      if (platformMatch) {
+        stopTargetId = platformMatch[3];
+      }
+    }
+
+    const { handleStopCommand } = await import("./commands-opencode.js");
+    const result = await handleStopCommand({
+      targetId: stopTargetId || sessionKey,
+    });
+    return { text: result.text };
+  }
+
   // Check for !rate command - show autonomous level based on user feedback
   const isRateCommand = /(^|[\s/])!rate(\s|$)/i.test(trimmedBody);
   console.log("[DEBUG] !rate check - trimmedBody:", trimmedBody, "isRateCommand:", isRateCommand);
