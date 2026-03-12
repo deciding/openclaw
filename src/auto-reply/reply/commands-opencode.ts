@@ -141,7 +141,7 @@ export async function streamToIM(params: {
         if (canEdit && lastSent.length + chunk.length <= charLimit) {
           // Has edit capability and fits - update existing message
           lastSent = lastSent + chunk;
-          await editFn!(editTarget, lastMessageId, lastSent);
+          await editFn!(editTarget, lastMessageId, `${responsePrefix}\n${lastSent}`);
         } else if (canEdit) {
           // Has edit but would exceed - send new message
           const msg = await sendFn(sendTarget, `${responsePrefix}\n${chunk}`, {});
@@ -168,7 +168,7 @@ export async function streamToIM(params: {
   // Final update
   if (lastSent) {
     if (canEdit) {
-      await editFn!(editTarget, lastMessageId, lastSent);
+      await editFn!(editTarget, lastMessageId, `${responsePrefix}\n${lastSent}`);
     }
   }
 
