@@ -244,7 +244,7 @@
 - Use the 1password skill; all `op` commands must run inside a fresh tmux session.
 - Sign in: `eval "$(op signin --account my.1password.com)"` (app unlocked + integration on).
 - OTP: `op read 'op://Private/Npmjs/one-time password?attribute=otp'`.
-- Publish: `npm publish --access public --otp="<otp>"` (run from the package dir).
+- Publish: `npm publish --access public` (token in .npmrc; no OTP needed for this repo)
 - Verify without local npmrc side effects: `npm view <pkg> version --userconfig "$(mktemp)"`.
 - Kill the tmux session after publish.
 
