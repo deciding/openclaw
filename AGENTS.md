@@ -310,6 +310,15 @@ To add new models for users to choose from, add entries to the model catalog fil
 }
 ```
 
+### How Provider is Determined
+
+The provider is derived from the model ID prefix (before the `/`):
+
+- Model ID: `hf:deepseek-ai/DeepSeek-V3-0324` → Provider: `hf` (HuggingFace)
+- Model ID: `custom:my-model-id` → Provider: `custom`
+
+This means adding a model with a new prefix (e.g., `myprovider:model-name`) automatically creates a new provider entry.
+
 ### Example: Adding to Synthetic Provider
 
 Edit `src/agents/synthetic-models.ts`, add to `SYNTHETIC_MODEL_CATALOG`:
@@ -329,3 +338,27 @@ export const SYNTHETIC_MODEL_CATALOG = [
 ```
 
 Model will be available to users after gateway restart.
+
+### Adding a Completely New Provider
+
+To add a new provider with its own API endpoint:
+
+1. **Create catalog file** (optional - can also add to existing file):
+   - Create `src/agents/myprovider-models.ts`
+   - Define `MYPROVIDER_MODEL_CATALOG` array
+   - Export `buildMyproviderModelDefinition()` function
+
+2. **Register provider** in `src/agents/models-config.providers.ts`:
+   - Import the catalog and build function
+   - Add `buildMyproviderProvider()` function
+   - Register in the provider build logic
+
+3. **Configure auth** - The new provider needs API key configuration via:
+   - Environment variable (e.g., `MYPROVIDER_API_KEY`)
+   - Or auth profile in config
+
+Models appear automatically in:
+
+- `openclaw models` command
+- Onboarding flow (model picker)
+- Model selection UIs

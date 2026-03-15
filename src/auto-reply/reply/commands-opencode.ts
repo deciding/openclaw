@@ -19,7 +19,7 @@ import type { CommandHandler } from "./commands-types.js";
 const execFileAsync = promisify(execFile);
 
 const DEFAULT_OPENCODE_AGENT = "build";
-const OPENCODE_TIMEOUT_MS = 300_000;
+const OPENCODE_TIMEOUT_MS = 12 * 60 * 60 * 1000; // 12 hours
 
 const activeSubprocesses = new Map<string, number>();
 
@@ -1074,8 +1074,8 @@ export async function handleOpencodeCommandDirect(params: {
   return null;
 }
 
-const CLAUDE_CODE_TIMEOUT_MS = 300_000;
-const CODEX_TIMEOUT_MS = 300_000;
+const CLAUDE_CODE_TIMEOUT_MS = 12 * 60 * 60 * 1000; // 12 hours
+const CODEX_TIMEOUT_MS = 12 * 60 * 60 * 1000; // 12 hours
 
 async function findClaudeCodeBinary(): Promise<string> {
   try {

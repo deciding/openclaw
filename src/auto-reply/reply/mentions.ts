@@ -117,12 +117,14 @@ export function stripStructuralPrefixes(text: string): string {
     ? text.slice(text.indexOf(CURRENT_MESSAGE_MARKER) + CURRENT_MESSAGE_MARKER.length).trimStart()
     : text;
 
-  return afterMarker
-    .replace(/\[[^\]]+\]\s*/g, "")
+  const result = afterMarker
+    // REMOVED: .replace(/\[[^\]]+\]\s*/g, "") - was too aggressive, removed user content in brackets
     .replace(/^[ \t]*[A-Za-z0-9+()\-_. ]+:\s*/gm, "")
     .replace(/\\n/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+  return result;
 }
 
 export function stripMentions(
