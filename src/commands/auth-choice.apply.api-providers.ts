@@ -336,6 +336,8 @@ const SIMPLE_API_KEY_PROVIDER_FLOWS: Partial<Record<AuthChoice, SimpleApiKeyProv
       }
       return undefined;
     },
+    noteMessage: "Get 0G compute credits at: https://compute-marketplace.0g.ai/wallet",
+    noteTitle: "0G",
   },
 };
 

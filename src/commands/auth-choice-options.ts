@@ -24,6 +24,12 @@ const AUTH_CHOICE_GROUP_DEFS: {
   choices: AuthChoice[];
 }[] = [
   {
+    value: "0g",
+    label: "0G",
+    hint: "Decentralized AI network",
+    choices: ["0g-private-key"],
+  },
+  {
     value: "openai",
     label: "OpenAI",
     hint: "Codex OAuth + API key",
@@ -154,12 +160,6 @@ const AUTH_CHOICE_GROUP_DEFS: {
     label: "Together AI",
     hint: "API key",
     choices: ["together-api-key"],
-  },
-  {
-    value: "0g",
-    label: "0G",
-    hint: "Decentralized AI network",
-    choices: ["0g-private-key"],
   },
   {
     value: "huggingface",
