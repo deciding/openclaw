@@ -50,6 +50,7 @@ export type AuthChoice =
   | "byteplus-api-key"
   | "qianfan-api-key"
   | "custom-api-key"
+  | "0g-private-key"
   | "skip";
 export type AuthChoiceGroupId =
   | "openai"
@@ -78,7 +79,8 @@ export type AuthChoiceGroupId =
   | "xai"
   | "volcengine"
   | "byteplus"
-  | "custom";
+  | "custom"
+  | "0g";
 export type GatewayAuthChoice = "token" | "password";
 export type ResetScope = "config" | "config+creds+sessions" | "full";
 export type GatewayBind = "loopback" | "lan" | "auto" | "custom" | "tailnet";
@@ -123,6 +125,7 @@ export type OnboardOptions = {
   xiaomiApiKey?: string;
   minimaxApiKey?: string;
   syntheticApiKey?: string;
+  ogPrivateKey?: string;
   veniceApiKey?: string;
   togetherApiKey?: string;
   huggingfaceApiKey?: string;

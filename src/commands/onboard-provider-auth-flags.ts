@@ -25,6 +25,7 @@ type OnboardProviderAuthOptionKey = keyof Pick<
   | "qianfanApiKey"
   | "volcengineApiKey"
   | "byteplusApiKey"
+  | "ogPrivateKey"
 >;
 
 export type OnboardProviderAuthFlag = {
@@ -134,6 +135,13 @@ export const ONBOARD_PROVIDER_AUTH_FLAGS: ReadonlyArray<OnboardProviderAuthFlag>
     cliFlag: "--synthetic-api-key",
     cliOption: "--synthetic-api-key <key>",
     description: "Synthetic API key",
+  },
+  {
+    optionKey: "ogPrivateKey",
+    authChoice: "0g-private-key",
+    cliFlag: "--og-private-key",
+    cliOption: "--og-private-key <key>",
+    description: "0G Private key (0x...)",
   },
   {
     optionKey: "veniceApiKey",

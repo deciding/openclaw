@@ -52,6 +52,8 @@ import {
   setVercelAiGatewayApiKey,
   setXiaomiApiKey,
   setZaiApiKey,
+  setOgPrivateKey,
+  apply0GConfig,
 } from "../../onboard-auth.js";
 import {
   applyCustomApiConfig,
@@ -650,6 +652,29 @@ export async function applyNonInteractiveAuthChoice(params: {
       mode: "api_key",
     });
     return applyVeniceConfig(nextConfig);
+  }
+
+  if (authChoice === "0g-private-key") {
+    const resolved = await resolveNonInteractiveApiKey({
+      provider: "0g",
+      cfg: baseConfig,
+      flagValue: opts.ogPrivateKey,
+      flagName: "--og-private-key",
+      envVar: "OG_PRIVATE_KEY",
+      runtime,
+    });
+    if (!resolved) {
+      return null;
+    }
+    if (resolved.source !== "profile") {
+      await setOgPrivateKey(resolved.key);
+    }
+    nextConfig = applyAuthProfileConfig(nextConfig, {
+      profileId: "0g:default",
+      provider: "0g",
+      mode: "token",
+    });
+    return apply0GConfig(nextConfig);
   }
 
   if (

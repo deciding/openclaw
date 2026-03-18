@@ -51,6 +51,8 @@ import {
   applyXiaomiProviderConfig,
   applyZaiConfig,
   applyZaiProviderConfig,
+  apply0GConfig,
+  apply0GProviderConfig,
   CLOUDFLARE_AI_GATEWAY_DEFAULT_MODEL_REF,
   KILOCODE_DEFAULT_MODEL_REF,
   LITELLM_DEFAULT_MODEL_REF,
@@ -63,6 +65,7 @@ import {
   VENICE_DEFAULT_MODEL_REF,
   VERCEL_AI_GATEWAY_DEFAULT_MODEL_REF,
   XIAOMI_DEFAULT_MODEL_REF,
+  OG_MODEL_CATALOG,
   setCloudflareAiGatewayConfig,
   setQianfanApiKey,
   setGeminiApiKey,
@@ -78,6 +81,7 @@ import {
   setVercelAiGatewayApiKey,
   setXiaomiApiKey,
   setZaiApiKey,
+  setOgPrivateKey,
   ZAI_DEFAULT_MODEL_REF,
 } from "./onboard-auth.js";
 import type { AuthChoice } from "./onboard-types.js";
@@ -103,6 +107,7 @@ const API_KEY_TOKEN_PROVIDER_AUTH_CHOICE: Record<string, AuthChoice> = {
   opencode: "opencode-zen",
   kilocode: "kilocode-api-key",
   qianfan: "qianfan-api-key",
+  "0g": "0g-private-key",
 };
 
 const ZAI_AUTH_CHOICE_ENDPOINT: Partial<
@@ -306,6 +311,31 @@ const SIMPLE_API_KEY_PROVIDER_FLOWS: Partial<Record<AuthChoice, SimpleApiKeyProv
     applyProviderConfig: applySyntheticProviderConfig,
     normalize: (value) => String(value ?? "").trim(),
     validate: (value) => (String(value ?? "").trim() ? undefined : "Required"),
+  },
+  "0g-private-key": {
+    provider: "0g",
+    profileId: "0g:default",
+    expectedProviders: ["0g"],
+    envLabel: "OG_PRIVATE_KEY",
+    promptMessage: "Enter 0G Private key (starts with 0x)",
+    setCredential: setOgPrivateKey,
+    defaultModel: `0g/${OG_MODEL_CATALOG[0]?.id}`,
+    applyDefaultConfig: apply0GConfig,
+    applyProviderConfig: apply0GProviderConfig,
+    normalize: (value) => String(value ?? "").trim(),
+    validate: (value) => {
+      const trimmed = String(value ?? "").trim();
+      if (!trimmed) {
+        return "Required";
+      }
+      if (!trimmed.startsWith("0x")) {
+        return "Private key must start with 0x";
+      }
+      if (trimmed.length < 64) {
+        return "Invalid private key length";
+      }
+      return undefined;
+    },
   },
 };
 

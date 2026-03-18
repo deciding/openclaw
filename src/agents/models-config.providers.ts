@@ -12,6 +12,7 @@ import {
   KILOCODE_DEFAULT_MAX_TOKENS,
   KILOCODE_MODEL_CATALOG,
 } from "../providers/kilocode-shared.js";
+import { buildOgModelDefinition, OG_BASE_URL, OG_MODEL_CATALOG } from "./0g-models.js";
 import { ensureAuthProfileStore, listProfilesForProvider } from "./auth-profiles.js";
 import { discoverBedrockModels } from "./bedrock-discovery.js";
 import {
@@ -793,6 +794,14 @@ export function buildKilocodeProvider(): ProviderConfig {
   };
 }
 
+export function build0GProvider(): ProviderConfig {
+  return {
+    baseUrl: OG_BASE_URL,
+    api: "openai-completions",
+    models: OG_MODEL_CATALOG.map(buildOgModelDefinition),
+  };
+}
+
 export async function resolveImplicitProviders(params: {
   agentDir: string;
   explicitProviders?: Record<string, ProviderConfig> | null;
@@ -985,6 +994,12 @@ export async function resolveImplicitProviders(params: {
     resolveApiKeyFromProfiles({ provider: "kilocode", store: authStore });
   if (kilocodeKey) {
     providers.kilocode = { ...buildKilocodeProvider(), apiKey: kilocodeKey };
+  }
+
+  // 0G provider - read private key from auth profiles
+  const ogKey = resolveApiKeyFromProfiles({ provider: "0g", store: authStore });
+  if (ogKey) {
+    providers["0g"] = { ...build0GProvider(), privateKey: ogKey };
   }
 
   return providers;

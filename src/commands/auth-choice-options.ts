@@ -156,6 +156,12 @@ const AUTH_CHOICE_GROUP_DEFS: {
     choices: ["together-api-key"],
   },
   {
+    value: "0g",
+    label: "0G",
+    hint: "Decentralized AI network",
+    choices: ["0g-private-key"],
+  },
+  {
     value: "huggingface",
     label: "Hugging Face",
     hint: "Inference API (HF token)",

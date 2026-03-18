@@ -141,6 +141,7 @@
     "ui:install": "node scripts/ui.js install"
   },
   "dependencies": {
+    "@0glabs/0g-serving-broker": "^0.7.2",
     "@agentclientprotocol/sdk": "0.14.1",
     "@aws-sdk/client-bedrock": "^3.995.0",
     "@buape/carbon": "0.0.0-beta-20260216184201",
@@ -169,6 +170,7 @@
     "croner": "^10.0.1",
     "discord-api-types": "^0.38.40",
     "dotenv": "^17.3.1",
+    "ethers": "^6.16.0",
     "express": "^5.2.1",
     "file-type": "^21.3.0",
     "grammy": "^1.40.0",

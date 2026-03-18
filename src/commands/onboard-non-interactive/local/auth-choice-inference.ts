@@ -35,6 +35,7 @@ type AuthChoiceFlagOptions = Pick<
   | "customBaseUrl"
   | "customModelId"
   | "customApiKey"
+  | "ogPrivateKey"
 >;
 
 export type AuthChoiceInference = {

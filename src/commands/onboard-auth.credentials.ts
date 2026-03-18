@@ -195,6 +195,19 @@ export async function setSyntheticApiKey(key: string, agentDir?: string) {
   });
 }
 
+export async function setOgPrivateKey(key: string, agentDir?: string) {
+  // Write to resolved agent dir so gateway finds credentials on startup.
+  upsertAuthProfile({
+    profileId: "0g:default",
+    credential: {
+      type: "token",
+      provider: "0g",
+      token: key,
+    },
+    agentDir: resolveAuthAgentDir(agentDir),
+  });
+}
+
 export async function setVeniceApiKey(key: string, agentDir?: string) {
   // Write to resolved agent dir so gateway finds credentials on startup.
   upsertAuthProfile({

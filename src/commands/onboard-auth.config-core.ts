@@ -1,3 +1,4 @@
+import { buildOgModelDefinition, OG_BASE_URL, OG_MODEL_CATALOG } from "../agents/0g-models.js";
 import {
   buildHuggingfaceModelDefinition,
   HUGGINGFACE_BASE_URL,
@@ -272,6 +273,47 @@ export function applySyntheticProviderConfig(cfg: OpenClawConfig): OpenClawConfi
 export function applySyntheticConfig(cfg: OpenClawConfig): OpenClawConfig {
   const next = applySyntheticProviderConfig(cfg);
   return applyAgentDefaultModelPrimary(next, SYNTHETIC_DEFAULT_MODEL_REF);
+}
+
+export function apply0GProviderConfig(cfg: OpenClawConfig): OpenClawConfig {
+  const models = { ...cfg.agents?.defaults?.models };
+  const defaultModel = OG_MODEL_CATALOG[0];
+  const defaultModelRef = `0g/${defaultModel.id}`;
+  models[defaultModelRef] = {
+    ...models[defaultModelRef],
+    alias: models[defaultModelRef]?.alias ?? defaultModel.name,
+  };
+
+  const providers = { ...cfg.models?.providers };
+  const existingProvider = providers["0g"];
+  const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
+  const ogModels = OG_MODEL_CATALOG.map(buildOgModelDefinition);
+  const mergedModels = [
+    ...existingModels,
+    ...ogModels.filter((model) => !existingModels.some((existing) => existing.id === model.id)),
+  ];
+  const { apiKey: _existingApiKey, ...existingProviderRest } = (existingProvider ?? {}) as Record<
+    string,
+    unknown
+  > as { apiKey?: string; privateKey?: string };
+  const resolvedPrivateKey = (existingProvider as { privateKey?: string })?.privateKey;
+  const normalizedPrivateKey = resolvedPrivateKey?.trim();
+  providers["0g"] = {
+    ...existingProviderRest,
+    baseUrl: OG_BASE_URL,
+    api: "openai-completions",
+    ...(normalizedPrivateKey ? { privateKey: normalizedPrivateKey } : {}),
+    models: mergedModels.length > 0 ? mergedModels : ogModels,
+  };
+
+  return applyOnboardAuthAgentModelsAndProviders(cfg, { agentModels: models, providers });
+}
+
+export function apply0GConfig(cfg: OpenClawConfig): OpenClawConfig {
+  const next = apply0GProviderConfig(cfg);
+  const defaultModel = OG_MODEL_CATALOG[0];
+  const defaultModelRef = `0g/${defaultModel.id}`;
+  return applyAgentDefaultModelPrimary(next, defaultModelRef);
 }
 
 export function applyXiaomiProviderConfig(cfg: OpenClawConfig): OpenClawConfig {
