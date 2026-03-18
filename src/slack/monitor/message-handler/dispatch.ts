@@ -298,7 +298,12 @@ export async function dispatchPreparedSlackMessage(prepared: PreparedSlackMessag
         hasStreamedMessage = false;
       }
 
-      await deliverNormally(payload);
+      // Skip normal delivery if preview streaming already delivered the message
+      const draftAlreadyDelivered =
+        previewStreamingEnabled && draftStream?.messageId() && hasStreamedMessage;
+      if (!draftAlreadyDelivered) {
+        await deliverNormally(payload);
+      }
     },
     onError: (err, info) => {
       runtime.error?.(danger(`slack ${info.kind} reply failed: ${String(err)}`));
@@ -396,7 +401,10 @@ export async function dispatchPreparedSlackMessage(prepared: PreparedSlackMessag
       onReasoningEnd: onDraftBoundary,
     },
   });
-  await draftStream.flush();
+  // Only flush draft stream for preview streaming, not for native Slack streaming
+  if (!useStreaming) {
+    await draftStream.flush();
+  }
   draftStream.stop();
   markDispatchIdle();
 
