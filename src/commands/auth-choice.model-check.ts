@@ -21,10 +21,13 @@ export async function warnIfModelConfigLooksOff(
     useCache: false,
   });
   if (catalog.length > 0) {
-    const known = catalog.some(
+    const knownInCatalog = catalog.some(
       (entry) => entry.provider === ref.provider && entry.id === ref.model,
     );
-    if (!known) {
+    // Also check if model exists in configured providers (e.g., 0G models from onboarding)
+    const knownInConfig =
+      config.models?.providers?.[ref.provider]?.models?.some((m) => m.id === ref.model) ?? false;
+    if (!knownInCatalog && !knownInConfig) {
       warnings.push(
         `Model not found: ${ref.provider}/${ref.model}. Update agents.defaults.model or run /models list.`,
       );

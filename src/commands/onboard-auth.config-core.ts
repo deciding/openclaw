@@ -1,4 +1,4 @@
-import { buildOgModelDefinition, OG_BASE_URL, OG_MODEL_CATALOG } from "../agents/0g-models.js";
+import { buildOgModelDefinition, OG_MODEL_CATALOG } from "../agents/0g-models.js";
 import {
   buildHuggingfaceModelDefinition,
   HUGGINGFACE_BASE_URL,
@@ -300,7 +300,6 @@ export function apply0GProviderConfig(cfg: OpenClawConfig): OpenClawConfig {
   const normalizedPrivateKey = resolvedPrivateKey?.trim();
   providers["0g"] = {
     ...existingProviderRest,
-    baseUrl: OG_BASE_URL,
     api: "openai-completions",
     ...(normalizedPrivateKey ? { privateKey: normalizedPrivateKey } : {}),
     models: mergedModels.length > 0 ? mergedModels : ogModels,

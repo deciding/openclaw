@@ -42,7 +42,7 @@ export type ModelDefinitionConfig = {
 };
 
 export type ModelProviderConfig = {
-  baseUrl: string;
+  baseUrl?: string;
   apiKey?: string;
   privateKey?: string;
   auth?: ModelProviderAuthMode;

@@ -231,7 +231,9 @@ export async function promptDefaultModel(
     a.localeCompare(b),
   );
 
-  const hasPreferredProvider = preferredProvider ? providers.includes(preferredProvider) : false;
+  const hasPreferredProvider = preferredProvider
+    ? providers.includes(preferredProvider) || !!cfg.models?.providers?.[preferredProvider]
+    : false;
   const shouldPromptProvider =
     !hasPreferredProvider && providers.length > 1 && models.length > PROVIDER_FILTER_THRESHOLD;
   if (shouldPromptProvider) {

@@ -66,7 +66,7 @@ export function applyProviderConfigWithDefaultModels(
     agentModels: Record<string, AgentModelEntryConfig>;
     providerId: string;
     api: ModelApi;
-    baseUrl: string;
+    baseUrl?: string;
     defaultModels: ModelDefinitionConfig[];
     defaultModelId?: string;
   },
@@ -173,7 +173,7 @@ function applyProviderConfigWithMergedModels(
     providerId: string;
     providerState: ProviderModelMergeState;
     api: ModelApi;
-    baseUrl: string;
+    baseUrl?: string;
     mergedModels: ModelDefinitionConfig[];
     fallbackModels: ModelDefinitionConfig[];
   },
@@ -194,7 +194,7 @@ function applyProviderConfigWithMergedModels(
 function buildProviderConfig(params: {
   existingProvider: ModelProviderConfig | undefined;
   api: ModelApi;
-  baseUrl: string;
+  baseUrl?: string;
   mergedModels: ModelDefinitionConfig[];
   fallbackModels: ModelDefinitionConfig[];
 }): ModelProviderConfig {

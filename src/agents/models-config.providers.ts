@@ -12,7 +12,7 @@ import {
   KILOCODE_DEFAULT_MAX_TOKENS,
   KILOCODE_MODEL_CATALOG,
 } from "../providers/kilocode-shared.js";
-import { buildOgModelDefinition, OG_BASE_URL, OG_MODEL_CATALOG } from "./0g-models.js";
+import { buildOgModelDefinition, OG_MODEL_CATALOG } from "./0g-models.js";
 import { ensureAuthProfileStore, listProfilesForProvider } from "./auth-profiles.js";
 import { discoverBedrockModels } from "./bedrock-discovery.js";
 import {
@@ -796,7 +796,6 @@ export function buildKilocodeProvider(): ProviderConfig {
 
 export function build0GProvider(): ProviderConfig {
   return {
-    baseUrl: OG_BASE_URL,
     api: "openai-completions",
     models: OG_MODEL_CATALOG.map(buildOgModelDefinition),
   };
