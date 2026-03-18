@@ -51,6 +51,7 @@ export function buildOgModelDefinition(entry: OgCatalogEntry): ModelDefinitionCo
   return {
     id: entry.id,
     name: entry.name,
+    api: "0g",
     reasoning: entry.reasoning,
     input: [...entry.input],
     cost: OG_DEFAULT_COST,

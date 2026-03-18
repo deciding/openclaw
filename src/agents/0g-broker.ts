@@ -38,11 +38,32 @@ export class OGBroker {
       return;
     }
 
-    const provider = new ethers.JsonRpcProvider(this.rpcUrl);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const wallet = new ethers.Wallet(this.privateKey, provider) as any;
-    this.broker = await createZGComputeNetworkBroker(wallet);
-    this.initialized = true;
+    try {
+      console.log("[0G] Connecting to RPC:", this.rpcUrl);
+      const provider = new ethers.JsonRpcProvider(this.rpcUrl);
+      console.log("[0G] Creating wallet...");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const wallet = new ethers.Wallet(this.privateKey, provider) as any;
+      console.log("[0G] Wallet address:", wallet.address);
+      console.log("[0G] Creating 0G broker...");
+      this.broker = await createZGComputeNetworkBroker(wallet);
+      console.log("[0G] Broker created successfully, checking account...");
+
+      try {
+        const ledger = await this.broker.ledger.getLedger();
+        const totalBalance = ethers.formatEther(ledger.totalBalance);
+        const availableBalance = ethers.formatEther(ledger.availableBalance);
+        console.log("[0G] Account total balance:", totalBalance, "0G");
+        console.log("[0G] Account available balance:", availableBalance, "0G");
+      } catch (ledgerErr) {
+        console.log("[0G] Could not get ledger info:", ledgerErr);
+      }
+
+      this.initialized = true;
+    } catch (err) {
+      console.error("[0G] initialize() failed:", err);
+      throw err;
+    }
   }
 
   async discoverModels(): Promise<void> {
@@ -50,38 +71,45 @@ export class OGBroker {
       throw new Error("Broker not initialized. Call initialize() first.");
     }
 
-    const services = await this.broker.inference.listService();
-    this.models.clear();
+    try {
+      console.log("[0G] Listing services...");
+      const services = await this.broker.inference.listService();
+      console.log("[0G] Found services:", services.length);
+      this.models.clear();
 
-    for (const svc of services) {
-      const [providerAddr, serviceType, endpoint, , , , modelName] = svc as unknown as [
-        string,
-        string,
-        string,
-        string,
-        string,
-        string,
-        string,
-      ];
+      for (const svc of services) {
+        const [providerAddr, serviceType, endpoint, , , , modelName] = svc as unknown as [
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+          string,
+        ];
 
-      const shortName = modelName.split("/").pop()?.toLowerCase() ?? "";
-      if (!this.models.has(shortName)) {
-        this.models.set(shortName, {
-          provider: providerAddr,
-          endpoint,
-          ogModel: modelName,
-          type: serviceType,
-        });
+        const shortName = modelName.split("/").pop()?.toLowerCase() ?? "";
+        if (!this.models.has(shortName)) {
+          this.models.set(shortName, {
+            provider: providerAddr,
+            endpoint,
+            ogModel: modelName,
+            type: serviceType,
+          });
+        }
+
+        if (!this.models.has(modelName)) {
+          this.models.set(modelName, {
+            provider: providerAddr,
+            endpoint,
+            ogModel: modelName,
+            type: serviceType,
+          });
+        }
       }
-
-      if (!this.models.has(modelName)) {
-        this.models.set(modelName, {
-          provider: providerAddr,
-          endpoint,
-          ogModel: modelName,
-          type: serviceType,
-        });
-      }
+    } catch (err) {
+      console.error("[0G] discoverModels() failed:", err);
+      throw err;
     }
   }
 
@@ -112,8 +140,24 @@ export class OGBroker {
       throw new Error("Broker not initialized. Call initialize() first.");
     }
 
+    console.log("[0G] Getting auth for provider:", providerAddr);
+
     await this.acknowledge(providerAddr);
     const { endpoint, model } = await this.broker.inference.getServiceMetadata(providerAddr);
+    console.log("[0G] Service endpoint:", endpoint, "model:", model);
+
+    // Check provider-specific account balance
+    try {
+      const [subAccount] = await this.broker.inference.getAccountWithDetail(providerAddr);
+      console.log(
+        "[0G] Provider sub-account balance:",
+        ethers.formatEther(subAccount.balance),
+        "0G",
+      );
+    } catch (accountErr) {
+      console.log("[0G] Could not get provider account details:", accountErr);
+    }
+
     const rawHeaders = await this.broker.inference.getRequestHeaders(providerAddr, content);
     const headers: Record<string, string> = {};
     for (const [key, value] of Object.entries(rawHeaders)) {
@@ -183,9 +227,23 @@ export async function getOGBroker(
   }
 
   if (!globalBroker) {
+    console.log(
+      "[0G] Creating new broker with RPC:",
+      rpc,
+      "privateKey:",
+      pk.substring(0, 10) + "...",
+    );
     globalBroker = new OGBroker(rpc, pk);
-    await globalBroker.initialize();
-    await globalBroker.discoverModels();
+    try {
+      await globalBroker.initialize();
+      console.log("[0G] Broker initialized, discovering models...");
+      await globalBroker.discoverModels();
+      console.log("[0G] Discovered models:", globalBroker.getModelCount());
+    } catch (err) {
+      console.error("[0G] Failed to initialize broker:", err);
+      globalBroker = null;
+      throw new Error("Failed to connect to 0G", { cause: err });
+    }
   }
 
   return globalBroker;
