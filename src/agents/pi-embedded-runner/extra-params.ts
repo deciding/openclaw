@@ -1,6 +1,7 @@
 import type { StreamFn } from "@mariozechner/pi-agent-core";
 import type { SimpleStreamOptions } from "@mariozechner/pi-ai";
 import { streamSimple } from "@mariozechner/pi-ai";
+import { getOGBroker } from "../../agents/0g-broker.js";
 import type { ThinkLevel } from "../../auto-reply/thinking.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { log } from "./logger.js";
@@ -502,6 +503,53 @@ function createZaiToolStreamWrapper(
 }
 
 /**
+ * Create a streamFn wrapper that injects 0G Compute Network authentication headers
+ * and dynamically overrides the baseUrl for each request.
+ *
+ * The 0G network uses a custom authentication mechanism via the @0glabs/0g-serving-broker SDK.
+ * For each request, we need to:
+ * 1. Resolve the model to get the provider address
+ * 2. Get auth headers and endpoint from the OGBroker
+ * 3. Override model.baseUrl with the dynamic endpoint from OGBroker
+ */
+function create0GAuthWrapper(baseStreamFn: StreamFn | undefined): StreamFn {
+  const underlying = baseStreamFn ?? streamSimple;
+  return async (model, context, options) => {
+    try {
+      const broker = await getOGBroker();
+      const modelInfo = broker.resolve(model.id);
+      if (!modelInfo) {
+        console.warn("[0G] Model not found:", model.id);
+        return underlying(model, context, options);
+      }
+
+      // Get endpoint and headers from OGBroker for this specific provider
+      const contentForAuth = JSON.stringify(context.messages ?? []);
+      const { headers: ogHeaders, endpoint } = await broker.getAuth(
+        modelInfo.provider,
+        contentForAuth,
+      );
+      console.log("[0G] Using endpoint:", endpoint, "for provider:", modelInfo.provider);
+
+      // Override model.baseUrl with the dynamic endpoint from OGBroker
+      const modelWithEndpoint = { ...model, baseUrl: endpoint };
+
+      return underlying(modelWithEndpoint, context, {
+        ...options,
+        headers: {
+          ...ogHeaders,
+          ...options?.headers,
+        },
+      });
+    } catch (err) {
+      console.error("[0G] Failed to get auth/endpoint:", err);
+      // Fall back to default behavior
+      return underlying(model, context, options);
+    }
+  };
+}
+
+/**
  * Apply extra params (like temperature) to an agent's streamFn.
  * Also adds OpenRouter app attribution headers when using the OpenRouter provider.
  *
@@ -555,6 +603,14 @@ export function applyExtraParamsToAgent(
     const openRouterThinkingLevel = modelId === "auto" ? undefined : thinkingLevel;
     agent.streamFn = createOpenRouterWrapper(agent.streamFn, openRouterThinkingLevel);
     agent.streamFn = createOpenRouterSystemCacheWrapper(agent.streamFn);
+  }
+
+  // 0G Compute Network: inject auth headers from OGBroker
+  // The 0G network uses a custom auth mechanism via the broker SDK
+  // We need to get auth headers for each request based on the provider address
+  if (provider === "0g") {
+    log.debug(`applying 0G auth headers for ${provider}/${modelId}`);
+    agent.streamFn = create0GAuthWrapper(agent.streamFn);
   }
 
   if (provider === "amazon-bedrock" && !isAnthropicBedrockModel(modelId)) {
