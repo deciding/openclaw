@@ -5,6 +5,7 @@ import {
 import { ethers } from "ethers";
 import type { OpenClawConfig } from "../config/config.js";
 import { loadConfig } from "../config/config.js";
+import { ensureAuthProfileStore } from "./auth-profiles.js";
 
 export interface OgModelInfo {
   provider: string;
@@ -160,7 +161,19 @@ export async function getOGBroker(
 ): Promise<OGBroker> {
   const cfg = config ?? loadConfig();
   const ogConfig = cfg.models?.providers?.["0g"] as { privateKey?: string } | undefined;
-  const pk = privateKey ?? process.env.OG_PRIVATE_KEY ?? ogConfig?.privateKey;
+
+  let pk = privateKey ?? process.env.OG_PRIVATE_KEY ?? ogConfig?.privateKey;
+
+  if (!pk) {
+    const authStore = ensureAuthProfileStore();
+    const { listProfilesForProvider } = await import("./auth-profiles/profiles.js");
+    const ids = listProfilesForProvider(authStore, "0g");
+    const cred = authStore.profiles[ids[0]];
+    if (cred?.type === "token") {
+      pk = cred.token;
+    }
+  }
+
   const rpc = rpcUrl ?? process.env.OG_RPC_URL ?? "https://evmrpc.0g.ai";
 
   if (!pk) {

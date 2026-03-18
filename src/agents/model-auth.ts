@@ -202,6 +202,23 @@ export async function resolveApiKeyForProvider(params: {
     };
   }
 
+  // Special handling for 0G provider: check auth profiles directly for token credential
+  const normalizedProvider = normalizeProviderId(provider);
+  if (normalizedProvider === "0g") {
+    const ogProfiles = listProfilesForProvider(store, "0g");
+    for (const profileId of ogProfiles) {
+      const cred = store.profiles[profileId];
+      if (cred?.type === "token" && cred.token) {
+        return {
+          apiKey: cred.token,
+          profileId,
+          source: `profile:${profileId}`,
+          mode: "token" as const,
+        };
+      }
+    }
+  }
+
   const customKey = getCustomProviderApiKey(cfg, provider);
   if (customKey) {
     return { apiKey: customKey, source: "models.json", mode: "api-key" };
