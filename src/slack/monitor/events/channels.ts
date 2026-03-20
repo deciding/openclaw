@@ -94,7 +94,8 @@ export function registerSlackChannelEvents(params: { ctx: SlackMonitorContext })
           const store = loadSessionStore(storePath, { skipCache: true });
           const entry = store[sessionKey];
           if (entry) {
-            const hadMode = entry.opencodeMode || entry.claudeCodeMode || entry.codexMode;
+            const hadMode =
+              entry.opencodeMode || entry.claudeCodeMode || entry.codexMode || entry.geminiMode;
             if (hadMode) {
               if (entry.origin) {
                 entry.origin.label = `#${channelName}`;

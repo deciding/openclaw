@@ -127,6 +127,11 @@ export type SessionEntry = {
   codexAgent?: string;
   codexModel?: string;
   codexResponsePrefix?: string;
+  geminiMode?: boolean;
+  geminiProjectDir?: string;
+  geminiAgent?: string;
+  geminiModel?: string;
+  geminiResponsePrefix?: string;
 };
 
 export function mergeSessionEntry(

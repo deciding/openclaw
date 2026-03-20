@@ -20,6 +20,7 @@ const execFileAsync = promisify(execFile);
 
 const DEFAULT_OPENCODE_AGENT = "build";
 const OPENCODE_TIMEOUT_MS = 12 * 60 * 60 * 1000; // 12 hours
+const GEMINI_TIMEOUT_MS = 12 * 60 * 60 * 1000; // 12 hours
 
 const activeSubprocesses = new Map<string, number>();
 
@@ -393,44 +394,46 @@ function parseOpencodeCommand(body: string): {
   const normalized = body.trim();
   const commandPrefix = "!code";
 
-  if (normalized === commandPrefix) {
+  if (normalized.toLowerCase() === commandPrefix) {
     return { action: null, value: "" };
   }
 
-  if (!normalized.toLowerCase().startsWith(commandPrefix)) {
-    if (normalized.toLowerCase().startsWith("!plan ")) {
-      return { action: "plan", value: normalized.slice("!plan".length).trim() };
-    }
-    if (normalized.toLowerCase().startsWith("!build ")) {
-      return { action: "build", value: normalized.slice("!build".length).trim() };
-    }
-    return { action: null, value: "" };
+  if (normalized.toLowerCase().startsWith("!plan ")) {
+    return { action: "plan", value: normalized.slice("!plan".length).trim() };
   }
-
-  const parts = normalized.slice(commandPrefix.length).trim().split(/\s+/);
-  const firstPart = (parts[0] || "").toLowerCase();
-
-  if (firstPart === "exit") {
-    return { action: "exit", value: "" };
+  if (normalized.toLowerCase().startsWith("!build ")) {
+    return { action: "build", value: normalized.slice("!build".length).trim() };
   }
-
-  if (firstPart === "stop") {
+  if (normalized.toLowerCase().startsWith("!stop") || normalized.toLowerCase() === "!stop") {
     return { action: "stop", value: "" };
   }
 
-  if (firstPart === "switch") {
-    const value = parts.slice(1).join(" ").trim() || DEFAULT_OPENCODE_AGENT;
-    return { action: "switch", value };
-  }
+  if (normalized.toLowerCase().startsWith(commandPrefix)) {
+    const parts = normalized.slice(commandPrefix.length).trim().split(/\s+/);
+    const firstPart = (parts[0] || "").toLowerCase();
 
-  if (firstPart === "model") {
-    const value = parts.slice(1).join(" ").trim();
-    return { action: "model", value };
-  }
+    if (firstPart === "exit") {
+      return { action: "exit", value: "" };
+    }
 
-  if (parts[0]) {
-    const value = parts.join(" ").trim();
-    return { action: "enter", value };
+    if (firstPart === "stop") {
+      return { action: "stop", value: "" };
+    }
+
+    if (firstPart === "switch") {
+      const value = parts.slice(1).join(" ").trim() || DEFAULT_OPENCODE_AGENT;
+      return { action: "switch", value };
+    }
+
+    if (firstPart === "model") {
+      const value = parts.slice(1).join(" ").trim();
+      return { action: "model", value };
+    }
+
+    if (parts[0]) {
+      const value = parts.join(" ").trim();
+      return { action: "enter", value };
+    }
   }
 
   return { action: null, value: "" };
@@ -619,11 +622,11 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
       shouldContinue: false,
       reply: {
         text:
-          "🔓 Entered opencode mode!\n\n" +
+          "🔓 Entered coding mode!\n\n" +
           `Project: ${projectDir}\n` +
           `Agent: ${sessionEntry?.opencodeAgent || DEFAULT_OPENCODE_AGENT}\n` +
           `Model: ${sessionEntry?.opencodeModel || "default"}\n\n` +
-          "All messages will now be forwarded to opencode CLI. Use !code exit to leave.",
+          "All messages will now be forwarded to coding CLI. Use !code exit to leave.",
       },
     };
   }
@@ -637,12 +640,12 @@ export const handleOpencodeCommand: CommandHandler = async (params, allowTextCom
     shouldContinue: false,
     reply: {
       text:
-        `OpenCode Mode${isActive ? " (active)" : ""}\n\n` +
+        `Coding Mode${isActive ? " (active)" : ""}\n\n` +
         `Usage:\n` +
-        `• !code [proj_dir] - Enter opencode mode\n` +
+        `• !code [proj_dir] - Enter coding mode\n` +
         `• !code switch [agent] - Change agent (default: plan/build)\n` +
         `• !code model [model] - Set model\n` +
-        `• !code exit - Exit opencode mode\n\n` +
+        `• !code exit - Exit coding mode\n\n` +
         `Current:\n` +
         `• Project: ${currentProject}\n` +
         `• Agent: ${currentAgent}\n` +
@@ -795,21 +798,26 @@ export async function handleOpencodeCommandDirect(params: {
         ? "claude"
         : sessionEntry?.codexMode
           ? "codex"
-          : null;
+          : sessionEntry?.geminiMode
+            ? "gemini"
+            : null;
     const currentProject =
       sessionEntry?.opencodeProjectDir ||
       sessionEntry?.claudeCodeProjectDir ||
       sessionEntry?.codexProjectDir ||
+      sessionEntry?.geminiProjectDir ||
       "none";
     const currentAgent =
       sessionEntry?.opencodeAgent ||
       sessionEntry?.claudeCodeAgent ||
       sessionEntry?.codexAgent ||
+      sessionEntry?.geminiAgent ||
       "plan/build";
     const currentModel =
       sessionEntry?.opencodeModel ||
       sessionEntry?.claudeCodeModel ||
       sessionEntry?.codexModel ||
+      sessionEntry?.geminiModel ||
       "default";
 
     return {
@@ -847,6 +855,11 @@ export async function handleOpencodeCommandDirect(params: {
       sessionEntry.codexAgent = undefined;
       sessionEntry.codexModel = undefined;
       sessionEntry.codexResponsePrefix = undefined;
+      sessionEntry.geminiMode = false;
+      sessionEntry.geminiProjectDir = undefined;
+      sessionEntry.geminiAgent = undefined;
+      sessionEntry.geminiModel = undefined;
+      sessionEntry.geminiResponsePrefix = undefined;
       if (sessionKey && sessionStore && storePath) {
         sessionEntry.updatedAt = Date.now();
         sessionStore[sessionKey] = sessionEntry;
@@ -865,17 +878,40 @@ export async function handleOpencodeCommandDirect(params: {
         ? "claude"
         : sessionEntry?.codexMode
           ? "codex"
-          : null;
+          : sessionEntry?.geminiMode
+            ? "gemini"
+            : null;
     if (!currentMode || !sessionEntry) {
       return {
         text: "❌ Not in coding mode. Use `!code [project_dir]` to enter coding mode first.",
       };
     }
-    sessionEntry.opencodeAgent = parsed.value || DEFAULT_OPENCODE_AGENT;
-    const repoName = sessionEntry.opencodeProjectDir
-      ? getRepoName(sessionEntry.opencodeProjectDir)
-      : "unknown";
-    sessionEntry.opencodeResponsePrefix = `[opencode:${repoName}|${sessionEntry.opencodeAgent}]`;
+    if (sessionEntry.opencodeMode) {
+      sessionEntry.opencodeAgent = parsed.value || DEFAULT_OPENCODE_AGENT;
+      const repoName = sessionEntry.opencodeProjectDir
+        ? getRepoName(sessionEntry.opencodeProjectDir)
+        : "unknown";
+      sessionEntry.opencodeResponsePrefix = `[opencode:${repoName}|${sessionEntry.opencodeAgent}]`;
+    } else if (sessionEntry.claudeCodeMode) {
+      sessionEntry.claudeCodeAgent = parsed.value || "build";
+      const repoName = sessionEntry.claudeCodeProjectDir
+        ? getRepoName(sessionEntry.claudeCodeProjectDir)
+        : "unknown";
+      sessionEntry.claudeCodeResponsePrefix = `[claude:${repoName}|${sessionEntry.claudeCodeAgent}]`;
+    } else if (sessionEntry.codexMode) {
+      sessionEntry.codexAgent = parsed.value || "build";
+      const repoName = sessionEntry.codexProjectDir
+        ? getRepoName(sessionEntry.codexProjectDir)
+        : "unknown";
+      sessionEntry.codexResponsePrefix = `[codex:${repoName}|${sessionEntry.codexAgent}]`;
+    } else if (sessionEntry.geminiMode) {
+      sessionEntry.geminiAgent = parsed.value || "build";
+      const repoName = sessionEntry.geminiProjectDir
+        ? getRepoName(sessionEntry.geminiProjectDir)
+        : "unknown";
+      sessionEntry.geminiResponsePrefix = `[gemini:${repoName}|${sessionEntry.geminiAgent}]`;
+    }
+
     if (sessionKey && sessionStore && storePath) {
       sessionEntry.updatedAt = Date.now();
       sessionStore[sessionKey] = sessionEntry;
@@ -883,7 +919,14 @@ export async function handleOpencodeCommandDirect(params: {
         store[sessionKey] = sessionEntry;
       });
     }
-    return { text: `🤖 Agent set to: ${sessionEntry.opencodeAgent}` };
+    return {
+      text: `🤖 Agent set to: ${
+        sessionEntry.opencodeAgent ||
+        sessionEntry.claudeCodeAgent ||
+        sessionEntry.codexAgent ||
+        sessionEntry.geminiAgent
+      }`,
+    };
   }
 
   if (parsed.action === "model") {
@@ -893,14 +936,25 @@ export async function handleOpencodeCommandDirect(params: {
         ? "claude"
         : sessionEntry?.codexMode
           ? "codex"
-          : null;
+          : sessionEntry?.geminiMode
+            ? "gemini"
+            : null;
     if (!currentMode || !sessionEntry) {
       return {
-        text: "❌ Not in opencode mode. Use `!code [project_dir]` to enter opencode mode first.",
+        text: "❌ Not in coding mode. Use `!code [project_dir]` to enter coding mode first.",
       };
     }
     if (!parsed.value) {
-      sessionEntry.opencodeModel = undefined;
+      if (sessionEntry.opencodeMode) {
+        sessionEntry.opencodeModel = undefined;
+      } else if (sessionEntry.claudeCodeMode) {
+        sessionEntry.claudeCodeModel = undefined;
+      } else if (sessionEntry.codexMode) {
+        sessionEntry.codexModel = undefined;
+      } else if (sessionEntry.geminiMode) {
+        sessionEntry.geminiModel = undefined;
+      }
+
       if (sessionKey && sessionStore && storePath) {
         sessionEntry.updatedAt = Date.now();
         sessionStore[sessionKey] = sessionEntry;
@@ -908,9 +962,19 @@ export async function handleOpencodeCommandDirect(params: {
           store[sessionKey] = sessionEntry;
         });
       }
-      return { text: "🧹 Opencode model cleared (will use opencode's default)." };
+      return { text: "🧹 Coding model cleared (will use default)." };
     }
-    sessionEntry.opencodeModel = parsed.value;
+
+    if (sessionEntry.opencodeMode) {
+      sessionEntry.opencodeModel = parsed.value;
+    } else if (sessionEntry.claudeCodeMode) {
+      sessionEntry.claudeCodeModel = parsed.value;
+    } else if (sessionEntry.codexMode) {
+      sessionEntry.codexModel = parsed.value;
+    } else if (sessionEntry.geminiMode) {
+      sessionEntry.geminiModel = parsed.value;
+    }
+
     if (sessionKey && sessionStore && storePath) {
       sessionEntry.updatedAt = Date.now();
       sessionStore[sessionKey] = sessionEntry;
@@ -918,7 +982,14 @@ export async function handleOpencodeCommandDirect(params: {
         store[sessionKey] = sessionEntry;
       });
     }
-    return { text: `📦 Opencode model set to: ${sessionEntry.opencodeModel}` };
+    return {
+      text: `📦 Model set to: ${
+        sessionEntry.opencodeModel ||
+        sessionEntry.claudeCodeModel ||
+        sessionEntry.codexModel ||
+        sessionEntry.geminiModel
+      }`,
+    };
   }
 
   if (parsed.action === "enter") {
@@ -944,27 +1015,63 @@ export async function handleOpencodeCommandDirect(params: {
     }
     return {
       text:
-        "🔓 Entered opencode mode!\n\n" +
+        "🔓 Entered coding mode!\n\n" +
         `Project: ${projectDir}\n` +
-        `Agent: ${sessionEntry?.opencodeAgent || DEFAULT_OPENCODE_AGENT}\n` +
-        `Model: ${sessionEntry?.opencodeModel || "default"}\n\n` +
-        "All messages will now be forwarded to opencode CLI. Use !code exit to leave.",
+        `Agent: ${
+          sessionEntry?.opencodeAgent ||
+          sessionEntry?.claudeCodeAgent ||
+          sessionEntry?.codexAgent ||
+          sessionEntry?.geminiAgent ||
+          "build"
+        }\n` +
+        `Model: ${
+          sessionEntry?.opencodeModel ||
+          sessionEntry?.claudeCodeModel ||
+          sessionEntry?.codexModel ||
+          sessionEntry?.geminiModel ||
+          "default"
+        }\n\n` +
+        "All messages will now be forwarded to coding CLI. Use !code exit to leave.",
     };
   }
 
   // Helper function to execute with temporary agent (reduces duplication)
   async function executeWithTempAgent(targetAgent: string, message: string): Promise<ReplyPayload> {
-    if (!sessionEntry?.opencodeMode || !sessionEntry?.opencodeProjectDir) {
+    const mode = sessionEntry?.opencodeMode
+      ? "opencode"
+      : sessionEntry?.claudeCodeMode
+        ? "claude"
+        : sessionEntry?.codexMode
+          ? "codex"
+          : sessionEntry?.geminiMode
+            ? "gemini"
+            : null;
+    const projectDir =
+      sessionEntry?.opencodeProjectDir ||
+      sessionEntry?.claudeCodeProjectDir ||
+      sessionEntry?.codexProjectDir ||
+      sessionEntry?.geminiProjectDir;
+
+    if (!mode || !projectDir) {
       return {
-        text: `❌ Not in opencode mode. Use \`!code [proj_dir]\` to enter opencode mode first.`,
+        text: `❌ Not in coding mode. Use \`!code [proj_dir]\` to enter coding mode first.`,
       };
     }
-    const projectName = getRepoName(sessionEntry.opencodeProjectDir);
-    const responsePrefix = `[opencode:${projectName}|${targetAgent}]`;
+    const projectName = getRepoName(projectDir);
+    const responsePrefix = `[${mode}:${projectName}|${targetAgent}]`;
 
     // Save original agent to restore after execution
-    const originalAgent = sessionEntry.opencodeAgent || "build";
-    const originalPrefix = sessionEntry.opencodeResponsePrefix;
+    const originalAgent =
+      sessionEntry.opencodeAgent ||
+      sessionEntry.claudeCodeAgent ||
+      sessionEntry.codexAgent ||
+      sessionEntry.geminiAgent ||
+      "build";
+    const originalPrefix =
+      sessionEntry.opencodeResponsePrefix ||
+      sessionEntry.claudeCodeResponsePrefix ||
+      sessionEntry.codexResponsePrefix ||
+      sessionEntry.geminiResponsePrefix;
 
     // If streaming functions available, use streaming (platform-agnostic)
     if (sessionEntry.origin?.from) {
@@ -981,8 +1088,20 @@ export async function handleOpencodeCommandDirect(params: {
         const targetId = platformMatch[3];
 
         // Temporarily set to target agent
-        sessionEntry.opencodeAgent = targetAgent;
-        sessionEntry.opencodeResponsePrefix = responsePrefix;
+        if (sessionEntry.opencodeMode) {
+          sessionEntry.opencodeAgent = targetAgent;
+          sessionEntry.opencodeResponsePrefix = responsePrefix;
+        } else if (sessionEntry.claudeCodeMode) {
+          sessionEntry.claudeCodeAgent = targetAgent;
+          sessionEntry.claudeCodeResponsePrefix = responsePrefix;
+        } else if (sessionEntry.codexMode) {
+          sessionEntry.codexAgent = targetAgent;
+          sessionEntry.codexResponsePrefix = responsePrefix;
+        } else if (sessionEntry.geminiMode) {
+          sessionEntry.geminiAgent = targetAgent;
+          sessionEntry.geminiResponsePrefix = responsePrefix;
+        }
+
         if (sessionKey && sessionStore && storePath) {
           sessionEntry.updatedAt = Date.now();
           sessionStore[sessionKey] = sessionEntry;
@@ -992,14 +1111,33 @@ export async function handleOpencodeCommandDirect(params: {
         }
 
         // Execute with streaming using shared helper
-        const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
+        const {
+          runOpencodeCommandStreaming,
+          runClaudeCodeCommandStreaming,
+          runCodexCommandStreaming,
+          runGeminiCommandStreaming,
+        } = await import("./commands-opencode.js");
+
+        const streamingFn =
+          mode === "opencode"
+            ? runOpencodeCommandStreaming
+            : mode === "claude"
+              ? runClaudeCodeCommandStreaming
+              : mode === "codex"
+                ? runCodexCommandStreaming
+                : runGeminiCommandStreaming;
+
         const cfg = loadConfig();
         const streamResult = await streamToIM({
-          streamingFn: runOpencodeCommandStreaming,
+          streamingFn: streamingFn as StreamingFn,
           message,
-          projectDir: sessionEntry.opencodeProjectDir,
+          projectDir,
           agent: targetAgent,
-          model: sessionEntry.opencodeModel,
+          model:
+            sessionEntry.opencodeModel ||
+            sessionEntry.claudeCodeModel ||
+            sessionEntry.codexModel ||
+            sessionEntry.geminiModel,
           platform,
           targetId,
           responsePrefix,
@@ -1007,8 +1145,20 @@ export async function handleOpencodeCommandDirect(params: {
         });
 
         // Restore original agent
-        sessionEntry.opencodeAgent = originalAgent;
-        sessionEntry.opencodeResponsePrefix = originalPrefix;
+        if (sessionEntry.opencodeMode) {
+          sessionEntry.opencodeAgent = originalAgent;
+          sessionEntry.opencodeResponsePrefix = originalPrefix;
+        } else if (sessionEntry.claudeCodeMode) {
+          sessionEntry.claudeCodeAgent = originalAgent;
+          sessionEntry.claudeCodeResponsePrefix = originalPrefix;
+        } else if (sessionEntry.codexMode) {
+          sessionEntry.codexAgent = originalAgent;
+          sessionEntry.codexResponsePrefix = originalPrefix;
+        } else if (sessionEntry.geminiMode) {
+          sessionEntry.geminiAgent = originalAgent;
+          sessionEntry.geminiResponsePrefix = originalPrefix;
+        }
+
         if (sessionKey && sessionStore && storePath) {
           sessionEntry.updatedAt = Date.now();
           sessionStore[sessionKey] = sessionEntry;
@@ -1025,8 +1175,20 @@ export async function handleOpencodeCommandDirect(params: {
     }
 
     // Fallback: non-streaming execution
-    sessionEntry.opencodeAgent = targetAgent;
-    sessionEntry.opencodeResponsePrefix = responsePrefix;
+    if (sessionEntry.opencodeMode) {
+      sessionEntry.opencodeAgent = targetAgent;
+      sessionEntry.opencodeResponsePrefix = responsePrefix;
+    } else if (sessionEntry.claudeCodeMode) {
+      sessionEntry.claudeCodeAgent = targetAgent;
+      sessionEntry.claudeCodeResponsePrefix = responsePrefix;
+    } else if (sessionEntry.codexMode) {
+      sessionEntry.codexAgent = targetAgent;
+      sessionEntry.codexResponsePrefix = responsePrefix;
+    } else if (sessionEntry.geminiMode) {
+      sessionEntry.geminiAgent = targetAgent;
+      sessionEntry.geminiResponsePrefix = responsePrefix;
+    }
+
     if (sessionKey && sessionStore && storePath) {
       sessionEntry.updatedAt = Date.now();
       sessionStore[sessionKey] = sessionEntry;
@@ -1035,22 +1197,52 @@ export async function handleOpencodeCommandDirect(params: {
       });
     }
 
-    const { runOpencodeCommandStreaming } = await import("./commands-opencode.js");
+    const {
+      runOpencodeCommandStreaming,
+      runClaudeCodeCommandStreaming,
+      runCodexCommandStreaming,
+      runGeminiCommandStreaming,
+    } = await import("./commands-opencode.js");
+
+    const streamingFn =
+      mode === "opencode"
+        ? runOpencodeCommandStreaming
+        : mode === "claude"
+          ? runClaudeCodeCommandStreaming
+          : mode === "codex"
+            ? runCodexCommandStreaming
+            : runGeminiCommandStreaming;
+
     const fullOutput: string[] = [];
-    await runOpencodeCommandStreaming({
+    await (streamingFn as StreamingFn)({
       message,
-      projectDir: sessionEntry.opencodeProjectDir,
+      projectDir,
       agent: targetAgent,
-      model: sessionEntry.opencodeModel,
-      onChunk: (chunk) => {
+      model:
+        sessionEntry.opencodeModel ||
+        sessionEntry.claudeCodeModel ||
+        sessionEntry.codexModel ||
+        sessionEntry.geminiModel,
+      onChunk: (chunk: string) => {
         fullOutput.push(chunk);
       },
     });
     const resultText = fullOutput.join("");
 
     // Restore original agent
-    sessionEntry.opencodeAgent = originalAgent;
-    sessionEntry.opencodeResponsePrefix = originalPrefix;
+    if (sessionEntry.opencodeMode) {
+      sessionEntry.opencodeAgent = originalAgent;
+      sessionEntry.opencodeResponsePrefix = originalPrefix;
+    } else if (sessionEntry.claudeCodeMode) {
+      sessionEntry.claudeCodeAgent = originalAgent;
+      sessionEntry.claudeCodeResponsePrefix = originalPrefix;
+    } else if (sessionEntry.codexMode) {
+      sessionEntry.codexAgent = originalAgent;
+      sessionEntry.codexResponsePrefix = originalPrefix;
+    } else if (sessionEntry.geminiMode) {
+      sessionEntry.geminiAgent = originalAgent;
+      sessionEntry.geminiResponsePrefix = originalPrefix;
+    }
     if (sessionKey && sessionStore && storePath) {
       sessionEntry.updatedAt = Date.now();
       sessionStore[sessionKey] = sessionEntry;
@@ -1408,6 +1600,160 @@ export async function runCodexCommandStreaming(params: {
       // Output final stdout message (the actual result)
       if (stdout) {
         params.onChunk(stdout);
+      }
+      if (code !== 0 && stderr) {
+        params.onChunk(`\n⚠️ ${stderr}`);
+        resolve({ error: stderr });
+      } else {
+        resolve({ error: undefined });
+      }
+    });
+  });
+}
+
+async function findGeminiBinary(): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("which", ["gemini"]);
+    const binaryPath = stdout.trim();
+    if (binaryPath) {
+      return binaryPath;
+    }
+  } catch {
+    // which failed, continue to fallback
+  }
+
+  const commonPaths = [
+    "/opt/homebrew/bin/gemini",
+    "/usr/local/bin/gemini",
+    path.join(os.homedir(), ".local/bin/gemini"),
+    path.join(os.homedir(), "Library/pnpm/gemini"),
+  ];
+
+  for (const p of commonPaths) {
+    try {
+      const { access } = await import("node:fs/promises");
+      await access(p);
+      return p;
+    } catch {
+      continue;
+    }
+  }
+
+  return "gemini";
+}
+
+export async function runGeminiCommand(params: {
+  message: string;
+  projectDir: string;
+  agent?: string;
+  model?: string;
+}): Promise<{ text: string; error?: string; responsePrefix?: string }> {
+  const geminiPath = await findGeminiBinary();
+  const repoName = getRepoName(params.projectDir);
+  const responsePrefix = `[gemini:${repoName}|${params.agent || "build"}]`;
+
+  const args = ["--resume"];
+
+  if (params.agent === "plan") {
+    args.push("--approval-mode=plan");
+  } else {
+    args.push("--approval-mode=yolo");
+  }
+
+  if (params.model) {
+    args.push("--model", params.model);
+  }
+
+  args.push("-p", params.message);
+
+  try {
+    const result = await runCommandWithTimeout([geminiPath, ...args], {
+      timeoutMs: GEMINI_TIMEOUT_MS,
+      cwd: params.projectDir,
+    });
+
+    if (result.termination === "timeout") {
+      return { text: "", error: "⏱️ Command timed out.", responsePrefix };
+    }
+
+    if (result.code !== 0 && result.stderr) {
+      return { text: result.stdout, error: `⚠️ ${result.stderr}`, responsePrefix };
+    }
+
+    return { text: result.stdout, responsePrefix };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    return { text: "", error: `❌ Error: ${errorMessage}`, responsePrefix };
+  }
+}
+
+export async function runGeminiCommandStreaming(params: {
+  message: string;
+  projectDir: string;
+  agent?: string;
+  model?: string;
+  targetId?: string;
+  onChunk: (chunk: string) => void;
+}): Promise<{ error?: string }> {
+  const geminiPath = await findGeminiBinary();
+
+  const args = ["--resume"];
+
+  if (params.agent === "plan") {
+    args.push("--approval-mode=plan");
+  } else {
+    args.push("--approval-mode=yolo");
+  }
+
+  if (params.model) {
+    args.push("--model", params.model);
+  }
+
+  args.push("-p", params.message);
+
+  return new Promise((resolve) => {
+    const child = spawn(geminiPath, args, {
+      cwd: params.projectDir,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    if (params.targetId && child.pid) {
+      activeSubprocesses.set(params.targetId, child.pid);
+    }
+
+    let stdout = "";
+    let stderr = "";
+
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve({ error: "⏱️ Command timed out." });
+    }, GEMINI_TIMEOUT_MS);
+
+    child.stdout?.on("data", (data) => {
+      const chunk = data.toString();
+      stdout += chunk;
+      params.onChunk(chunk);
+    });
+
+    child.stderr?.on("data", (data) => {
+      const chunk = data.toString();
+      stderr += chunk;
+      params.onChunk(chunk);
+    });
+
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      if (params.targetId) {
+        activeSubprocesses.delete(params.targetId);
+      }
+      params.onChunk(`\n❌ Error: ${err.message}`);
+      resolve({ error: err.message });
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (params.targetId) {
+        activeSubprocesses.delete(params.targetId);
       }
       if (code !== 0 && stderr) {
         params.onChunk(`\n⚠️ ${stderr}`);

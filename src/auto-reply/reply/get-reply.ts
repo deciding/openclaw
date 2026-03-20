@@ -26,6 +26,8 @@ import {
   runClaudeCodeCommand,
   runClaudeCodeCommandStreaming,
   runCodexCommand,
+  runGeminiCommand,
+  runGeminiCommandStreaming,
   streamToIM,
 } from "./commands-opencode.js";
 import { resolveDefaultModel } from "./directive-handling.js";
@@ -427,7 +429,7 @@ export async function getReplyFromConfig(
     bodyStripped,
   } = sessionState;
 
-  // Check channel name for auto-enter coding agent mode (e.g., #opencode-myrepo, #claude-myrepo, #codex-myrepo)
+  // Check channel name for auto-enter coding agent mode (e.g., #opencode-myrepo, #claude-myrepo, #codex-myrepo, #gemini-myrepo)
   // Also supports level prefix: #l1-codex-myrepo, #l2-opencode-myrepo, etc.
   // Use GroupSubject FIRST (fresh from Slack API), then fall back to session origin
   const channelLabel =
@@ -441,7 +443,9 @@ export async function getReplyFromConfig(
     "| origin.label:",
     sessionEntry?.origin?.label,
   );
-  const channelNameMatch = channelLabel?.match(/^#?(?:l[0-4]-)?(opencode|claude|codex)[-:](.+)$/i);
+  const channelNameMatch = channelLabel?.match(
+    /^#?(?:l[0-4]-)?(opencode|claude|codex|gemini)[-:](.+)$/i,
+  );
   console.log("[DEBUG] Channel name match:", channelNameMatch);
 
   if (channelNameMatch) {
@@ -450,19 +454,22 @@ export async function getReplyFromConfig(
     const isOpencode = modeLower === "opencode";
     const isClaudeCode = modeLower === "claude";
     const isCodex = modeLower === "codex";
+    const isGemini = modeLower === "gemini";
     console.log("[DEBUG] Mode detected:", modeLower, "project:", projectName);
 
     // Check if we need to enter or switch mode
     const currentMode =
-      sessionEntry?.opencodeMode ||
+      (sessionEntry?.opencodeMode && "opencode") ||
       (sessionEntry?.claudeCodeMode && "claude") ||
-      (sessionEntry?.codexMode && "codex");
+      (sessionEntry?.codexMode && "codex") ||
+      (sessionEntry?.geminiMode && "gemini");
     console.log("[DEBUG] Current mode:", currentMode);
 
     const needsSwitch =
       (isOpencode && !sessionEntry?.opencodeMode) ||
       (isClaudeCode && !sessionEntry?.claudeCodeMode) ||
-      (isCodex && !sessionEntry?.codexMode);
+      (isCodex && !sessionEntry?.codexMode) ||
+      (isGemini && !sessionEntry?.geminiMode);
     console.log("[DEBUG] Needs switch:", needsSwitch);
 
     // Resolve project directory
@@ -473,6 +480,8 @@ export async function getReplyFromConfig(
       projectDir = sessionEntry?.claudeCodeProjectDir ?? "";
     } else if (isCodex) {
       projectDir = sessionEntry?.codexProjectDir ?? "";
+    } else if (isGemini) {
+      projectDir = sessionEntry?.geminiProjectDir ?? "";
     }
 
     // Validate and resolve project directory
@@ -499,7 +508,9 @@ export async function getReplyFromConfig(
         ? "claude"
         : sessionEntry?.opencodeMode
           ? "opencode"
-          : null;
+          : sessionEntry?.geminiMode
+            ? "gemini"
+            : null;
     console.log(
       "[DEBUG] Session flags - opencodeMode:",
       sessionEntry?.opencodeMode,
@@ -507,6 +518,8 @@ export async function getReplyFromConfig(
       sessionEntry?.claudeCodeMode,
       "| codexMode:",
       sessionEntry?.codexMode,
+      "| geminiMode:",
+      sessionEntry?.geminiMode,
     );
     const previousProjectDir =
       previousMode === "codex"
@@ -515,7 +528,9 @@ export async function getReplyFromConfig(
           ? sessionEntry?.claudeCodeProjectDir
           : previousMode === "opencode"
             ? sessionEntry?.opencodeProjectDir
-            : null;
+            : previousMode === "gemini"
+              ? sessionEntry?.geminiProjectDir
+              : null;
     const modeChanged = previousMode && previousMode !== modeLower && previousProjectDir;
     console.log(
       "[MODE] Previous mode:",
@@ -572,9 +587,11 @@ Now generate the summary for continuing with ${modeLower}:`;
         runOpencodeCommand,
         runClaudeCodeCommand,
         runCodexCommand,
+        runGeminiCommand,
         runOpencodeCommandStreaming,
         runClaudeCodeCommandStreaming,
         runCodexCommandStreaming,
+        runGeminiCommandStreaming,
       } = await import("./commands-opencode.js");
 
       let platform: "slack" | "discord" | "whatsapp" | "telegram" | "imessage" = "slack";
@@ -620,6 +637,12 @@ Now generate the summary for continuing with ${modeLower}:`;
             agent: "build",
           });
           streamingFn = runClaudeCodeCommandStreaming;
+        } else if (previousMode === "gemini") {
+          console.log("[MIGRATION] Running Gemini plan command with:", {
+            projectDir: oldProjectDir,
+            agent: "build",
+          });
+          streamingFn = runGeminiCommandStreaming;
         } else {
           console.log("[MIGRATION] Running OpenCode plan command with:", {
             projectDir: oldProjectDir,
@@ -645,6 +668,8 @@ Now generate the summary for continuing with ${modeLower}:`;
             channelData: { responsePrefix },
           };
         }
+        // After streaming migration summary, we MUST continue to update the mode state
+        summaryText = "[Streamed to IM]";
       } else {
         if (previousMode === "codex") {
           console.log("[MIGRATION] Running Codex plan command with:", {
@@ -664,6 +689,18 @@ Now generate the summary for continuing with ${modeLower}:`;
             agent: "build",
           });
           const result = await runClaudeCodeCommand({
+            message: migrationPrompt,
+            projectDir: oldProjectDir,
+            agent: "build",
+          });
+          summaryText = result.text;
+          summaryError = result.error || "";
+        } else if (previousMode === "gemini") {
+          console.log("[MIGRATION] Running Gemini plan command with:", {
+            projectDir: oldProjectDir,
+            agent: "build",
+          });
+          const result = await runGeminiCommand({
             message: migrationPrompt,
             projectDir: oldProjectDir,
             agent: "build",
@@ -733,6 +770,10 @@ Now generate the summary for continuing with ${modeLower}:`;
       sessionEntry.codexProjectDir = undefined;
       sessionEntry.codexAgent = undefined;
       sessionEntry.codexResponsePrefix = undefined;
+      sessionEntry.geminiMode = false;
+      sessionEntry.geminiProjectDir = undefined;
+      sessionEntry.geminiAgent = undefined;
+      sessionEntry.geminiResponsePrefix = undefined;
 
       if (isOpencode) {
         sessionEntry.opencodeMode = true;
@@ -742,6 +783,7 @@ Now generate the summary for continuing with ${modeLower}:`;
         // Clear other modes
         sessionEntry.claudeCodeMode = false;
         sessionEntry.codexMode = false;
+        sessionEntry.geminiMode = false;
       } else if (isClaudeCode) {
         sessionEntry.claudeCodeMode = true;
         sessionEntry.claudeCodeProjectDir = effectiveProjectDir;
@@ -750,6 +792,7 @@ Now generate the summary for continuing with ${modeLower}:`;
         // Clear other modes
         sessionEntry.opencodeMode = false;
         sessionEntry.codexMode = false;
+        sessionEntry.geminiMode = false;
       } else if (isCodex) {
         sessionEntry.codexMode = true;
         sessionEntry.codexProjectDir = effectiveProjectDir;
@@ -758,6 +801,16 @@ Now generate the summary for continuing with ${modeLower}:`;
         // Clear other modes
         sessionEntry.opencodeMode = false;
         sessionEntry.claudeCodeMode = false;
+        sessionEntry.geminiMode = false;
+      } else if (isGemini) {
+        sessionEntry.geminiMode = true;
+        sessionEntry.geminiProjectDir = effectiveProjectDir;
+        sessionEntry.geminiAgent = sessionEntry.geminiAgent || "build";
+        sessionEntry.geminiResponsePrefix = `[gemini:${projectName}|${sessionEntry.geminiAgent}]`;
+        // Clear other modes
+        sessionEntry.opencodeMode = false;
+        sessionEntry.claudeCodeMode = false;
+        sessionEntry.codexMode = false;
       }
 
       if (sessionKey && sessionStore && storePath) {
@@ -768,7 +821,13 @@ Now generate the summary for continuing with ${modeLower}:`;
         });
       }
 
-      const modeLabel = isOpencode ? "opencode" : isClaudeCode ? "Claude Code" : "Codex";
+      const modeLabel = isOpencode
+        ? "opencode"
+        : isClaudeCode
+          ? "Claude Code"
+          : isCodex
+            ? "Codex"
+            : "Gemini";
       return {
         text: `🔓 Entered ${modeLabel} mode!\n\nProject: ${projectDir}\n\nAll messages will now be forwarded to ${modeLabel} CLI.${migrationMessage}`,
       };
@@ -843,6 +902,9 @@ Now generate the summary for continuing with ${modeLower}:`;
     } else if (sessionEntry?.codexMode && sessionEntry?.codexProjectDir) {
       projectDir = sessionEntry.codexProjectDir;
       mode = "codex";
+    } else if (sessionEntry?.geminiMode && sessionEntry?.geminiProjectDir) {
+      projectDir = sessionEntry.geminiProjectDir;
+      mode = "gemini";
     }
 
     if (projectDir && mode) {
@@ -871,7 +933,7 @@ Now generate the summary for continuing with ${modeLower}:`;
       return { text: responseText };
     } else {
       const responseText =
-        "⚠️ Not in a coding CLI channel. Use this command in #opencode-, #claude-, or #codex- channels.";
+        "⚠️ Not in a coding CLI channel. Use this command in #opencode-, #claude-, #codex-, or #gemini- channels.";
       if (sessionEntry?.origin?.from) {
         const originFrom = sessionEntry.origin.from;
         const platformMatch = originFrom.match(
@@ -1165,6 +1227,82 @@ Now generate the summary for continuing with ${modeLower}:`;
         projectDir: sessionEntry.codexProjectDir,
         agent: sessionEntry.codexAgent || "build",
         model: sessionEntry.codexModel,
+      });
+      if (result.error) {
+        return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
+      }
+      return { text: result.text, channelData: { responsePrefix } };
+    }
+  }
+
+  // Gemini mode handling
+  if (sessionEntry?.geminiMode && sessionEntry?.geminiProjectDir && triggerBodyNormalized) {
+    const isCommand = triggerBodyNormalized.startsWith("/");
+    if (!isCommand) {
+      await recordUserInstruction({
+        projectDir: sessionEntry.geminiProjectDir,
+        mode: "gemini",
+        instruction: triggerBodyNormalized,
+        sessionEntry,
+      });
+      typing.cleanup();
+      const responsePrefix = sessionEntry.geminiResponsePrefix;
+
+      // Detect platform from sessionEntry.origin.from
+      let platform: "slack" | "discord" | "whatsapp" | "telegram" | "imessage" = "slack";
+      let targetId: string | null = null;
+
+      if (sessionEntry?.origin?.from) {
+        const platformMatch = sessionEntry.origin.from.match(
+          /^(slack|discord|whatsapp|telegram|imessage):(channel:|chat:|user:)?(.+)$/i,
+        );
+        if (platformMatch) {
+          platform = platformMatch[1].toLowerCase() as typeof platform;
+          targetId = platformMatch[3];
+        }
+      }
+
+      // Fallback: try to get channel ID for Slack
+      let channelId: string | null = targetId;
+      if (!channelId && sessionEntry?.origin?.to) {
+        const match = sessionEntry.origin.to.match(/channel:([^:]+)/i);
+        if (match) {
+          channelId = match[1].toUpperCase();
+        }
+      }
+      if (!channelId) {
+        const channelMatch = sessionKey?.match(/slack:channel:([^:]+)/i);
+        if (channelMatch) {
+          channelId = channelMatch[1].toUpperCase();
+        }
+      }
+
+      if (channelId) {
+        // Use shared helper for streaming (platform-agnostic)
+        const streamResult = await streamToIM({
+          streamingFn: runGeminiCommandStreaming,
+          message: triggerBodyNormalized,
+          projectDir: sessionEntry.geminiProjectDir,
+          agent: sessionEntry.geminiAgent || "build",
+          model: sessionEntry.geminiModel,
+          platform,
+          targetId: targetId || channelId || "",
+          responsePrefix: responsePrefix!,
+          cfg,
+        });
+
+        if (streamResult.error) {
+          return { text: `❌ ${streamResult.error}`, channelData: { responsePrefix } };
+        }
+
+        return { text: "", channelData: { responsePrefix } };
+      }
+
+      const result = await runGeminiCommand({
+        message: triggerBodyNormalized,
+        projectDir: sessionEntry.geminiProjectDir,
+        agent: sessionEntry.geminiAgent || "build",
+        model: sessionEntry.geminiModel,
       });
       if (result.error) {
         return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
