@@ -398,10 +398,10 @@ function parseOpencodeCommand(body: string): {
     return { action: null, value: "" };
   }
 
-  if (normalized.toLowerCase().startsWith("!plan ")) {
+  if (normalized.toLowerCase().startsWith("!plan")) {
     return { action: "plan", value: normalized.slice("!plan".length).trim() };
   }
-  if (normalized.toLowerCase().startsWith("!build ")) {
+  if (normalized.toLowerCase().startsWith("!build")) {
     return { action: "build", value: normalized.slice("!build".length).trim() };
   }
   if (normalized.toLowerCase().startsWith("!stop") || normalized.toLowerCase() === "!stop") {
@@ -828,8 +828,8 @@ export async function handleOpencodeCommandDirect(params: {
         `• !code switch [agent] - Change agent (default: plan/build)\n` +
         `• !code model [model] - Set model\n` +
         `• !code exit - Exit coding mode\n` +
-        `• !plan <msg> - Run with plan agent\n` +
-        `• !build <msg> - Run with build agent\n\n` +
+        `• !plan [msg] - Run with or switch to plan agent\n` +
+        `• !build [msg] - Run with or switch to build agent\n\n` +
         `Current:\n` +
         `• Mode: ${currentMode || "none"}\n` +
         `• Project: ${currentProject}\n` +
@@ -871,7 +871,8 @@ export async function handleOpencodeCommandDirect(params: {
     return { text: "🚪 Exited coding mode. Messages will now go to the normal OpenClaw agent." };
   }
 
-  if (parsed.action === "switch") {
+  // Helper function to perform permanent agent switch
+  async function performPermanentSwitch(targetAgent: string): Promise<ReplyPayload> {
     const currentMode = sessionEntry?.opencodeMode
       ? "opencode"
       : sessionEntry?.claudeCodeMode
@@ -887,25 +888,25 @@ export async function handleOpencodeCommandDirect(params: {
       };
     }
     if (sessionEntry.opencodeMode) {
-      sessionEntry.opencodeAgent = parsed.value || DEFAULT_OPENCODE_AGENT;
+      sessionEntry.opencodeAgent = targetAgent;
       const repoName = sessionEntry.opencodeProjectDir
         ? getRepoName(sessionEntry.opencodeProjectDir)
         : "unknown";
       sessionEntry.opencodeResponsePrefix = `[opencode:${repoName}|${sessionEntry.opencodeAgent}]`;
     } else if (sessionEntry.claudeCodeMode) {
-      sessionEntry.claudeCodeAgent = parsed.value || "build";
+      sessionEntry.claudeCodeAgent = targetAgent;
       const repoName = sessionEntry.claudeCodeProjectDir
         ? getRepoName(sessionEntry.claudeCodeProjectDir)
         : "unknown";
       sessionEntry.claudeCodeResponsePrefix = `[claude:${repoName}|${sessionEntry.claudeCodeAgent}]`;
     } else if (sessionEntry.codexMode) {
-      sessionEntry.codexAgent = parsed.value || "build";
+      sessionEntry.codexAgent = targetAgent;
       const repoName = sessionEntry.codexProjectDir
         ? getRepoName(sessionEntry.codexProjectDir)
         : "unknown";
       sessionEntry.codexResponsePrefix = `[codex:${repoName}|${sessionEntry.codexAgent}]`;
     } else if (sessionEntry.geminiMode) {
-      sessionEntry.geminiAgent = parsed.value || "build";
+      sessionEntry.geminiAgent = targetAgent;
       const repoName = sessionEntry.geminiProjectDir
         ? getRepoName(sessionEntry.geminiProjectDir)
         : "unknown";
@@ -920,13 +921,12 @@ export async function handleOpencodeCommandDirect(params: {
       });
     }
     return {
-      text: `🤖 Agent set to: ${
-        sessionEntry.opencodeAgent ||
-        sessionEntry.claudeCodeAgent ||
-        sessionEntry.codexAgent ||
-        sessionEntry.geminiAgent
-      }`,
+      text: `🤖 Agent set to: ${targetAgent}`,
     };
+  }
+
+  if (parsed.action === "switch") {
+    return performPermanentSwitch(parsed.value || DEFAULT_OPENCODE_AGENT);
   }
 
   if (parsed.action === "model") {
@@ -1255,11 +1255,17 @@ export async function handleOpencodeCommandDirect(params: {
 
   // Handle !plan <message> - temporarily set agent to plan, execute, then restore
   if (parsed.action === "plan") {
+    if (!parsed.value) {
+      return performPermanentSwitch("plan");
+    }
     return executeWithTempAgent("plan", parsed.value);
   }
 
   // Handle !build <message> - temporarily set agent to build, execute, then restore
   if (parsed.action === "build") {
+    if (!parsed.value) {
+      return performPermanentSwitch("build");
+    }
     return executeWithTempAgent("build", parsed.value);
   }
 

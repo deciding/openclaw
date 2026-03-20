@@ -839,8 +839,8 @@ Now generate the summary for continuing with ${modeLower}:`;
   const trimmedBody = triggerBodyNormalized?.trim() ?? "";
   const isOpencodeCommand =
     /^!code(\s|$)/i.test(trimmedBody) ||
-    /^!plan\s/i.test(trimmedBody) ||
-    /^!build\s/i.test(trimmedBody);
+    /^!plan(\s|$)/i.test(trimmedBody) ||
+    /^!build(\s|$)/i.test(trimmedBody);
 
   if (isOpencodeCommand) {
     typing.cleanup();
