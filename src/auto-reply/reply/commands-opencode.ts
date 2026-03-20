@@ -719,6 +719,7 @@ export async function runOpencodeCommandStreaming(params: {
     const child = spawn(opencodePath, args, {
       cwd: params.projectDir,
       stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
     });
 
     if (params.targetId && child.pid) {
@@ -1406,6 +1407,7 @@ export async function runClaudeCodeCommandStreaming(params: {
     const child = spawn(claudePath, args, {
       cwd: params.projectDir,
       stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
     });
 
     if (params.targetId && child.pid) {
@@ -1561,6 +1563,7 @@ export async function runCodexCommandStreaming(params: {
   return new Promise((resolve) => {
     const child = spawn(codexPath, args, {
       stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
     });
 
     if (params.targetId && child.pid) {
@@ -1721,6 +1724,7 @@ export async function runGeminiCommandStreaming(params: {
     const child = spawn(geminiPath, args, {
       cwd: params.projectDir,
       stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
     });
 
     if (params.targetId && child.pid) {

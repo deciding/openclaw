@@ -987,7 +987,8 @@ Now generate the summary for continuing with ${modeLower}:`;
   }
 
   if (sessionEntry?.opencodeMode && sessionEntry?.opencodeProjectDir && triggerBodyNormalized) {
-    const isCommand = triggerBodyNormalized.startsWith("/");
+    const isCommand =
+      triggerBodyNormalized.startsWith("/") || triggerBodyNormalized.startsWith("!");
     if (!isCommand) {
       await recordUserInstruction({
         projectDir: sessionEntry.opencodeProjectDir,
@@ -1028,23 +1029,6 @@ Now generate the summary for continuing with ${modeLower}:`;
       }
 
       if (channelId) {
-        // Extract thread ID from sessionKey
-        const threadMatch = sessionKey?.match(/slack:channel:[^:]+:thread:([^:]+)/);
-        const _threadId = threadMatch ? threadMatch[1] : null;
-
-        if (!channelId) {
-          const result = await runOpencodeCommand({
-            message: triggerBodyNormalized,
-            projectDir: sessionEntry.opencodeProjectDir,
-            agent: sessionEntry.opencodeAgent || "plan/build",
-            model: sessionEntry.opencodeModel,
-          });
-          if (result.error) {
-            return { text: result.text + "\n" + result.error, channelData: { responsePrefix } };
-          }
-          return { text: result.text, channelData: { responsePrefix } };
-        }
-
         // Use shared helper for streaming (platform-agnostic)
         const streamResult = await streamToIM({
           streamingFn: runOpencodeCommandStreaming,
@@ -1080,7 +1064,8 @@ Now generate the summary for continuing with ${modeLower}:`;
 
   // Claude Code mode handling
   if (sessionEntry?.claudeCodeMode && sessionEntry?.claudeCodeProjectDir && triggerBodyNormalized) {
-    const isCommand = triggerBodyNormalized.startsWith("/");
+    const isCommand =
+      triggerBodyNormalized.startsWith("/") || triggerBodyNormalized.startsWith("!");
     if (!isCommand) {
       await recordUserInstruction({
         projectDir: sessionEntry.claudeCodeProjectDir,
@@ -1156,7 +1141,8 @@ Now generate the summary for continuing with ${modeLower}:`;
 
   // Codex mode handling
   if (sessionEntry?.codexMode && sessionEntry?.codexProjectDir && triggerBodyNormalized) {
-    const isCommand = triggerBodyNormalized.startsWith("/");
+    const isCommand =
+      triggerBodyNormalized.startsWith("/") || triggerBodyNormalized.startsWith("!");
     if (!isCommand) {
       await recordUserInstruction({
         projectDir: sessionEntry.codexProjectDir,
@@ -1237,7 +1223,8 @@ Now generate the summary for continuing with ${modeLower}:`;
 
   // Gemini mode handling
   if (sessionEntry?.geminiMode && sessionEntry?.geminiProjectDir && triggerBodyNormalized) {
-    const isCommand = triggerBodyNormalized.startsWith("/");
+    const isCommand =
+      triggerBodyNormalized.startsWith("/") || triggerBodyNormalized.startsWith("!");
     if (!isCommand) {
       await recordUserInstruction({
         projectDir: sessionEntry.geminiProjectDir,
